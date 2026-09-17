@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShipTrack</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./main.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <h1>📦 ShipTrack</h1>
+        <div class="topbar-actions">
+          <button id="btn-theme-toggle" class="btn btn-secondary" title="Changer de thème">🌙</button>
+          <span id="late-badge" class="badge badge-late hidden"></span>
+          <div class="export-menu-wrap">
+            <button id="btn-export" class="btn btn-secondary">Exporter Excel ▾</button>
+            <div id="export-menu" class="export-menu hidden">
+              <button type="button" id="export-all" class="export-menu-item">Tout exporter</button>
+              <button type="button" id="export-filtered" class="export-menu-item">Exporter la vue filtrée</button>
+            </div>
+          </div>
+          <button id="btn-import" class="btn btn-secondary">Importer Excel</button>
+        </div>
+      </header>
+
+      <!-- Compteurs par statut, cliquables pour filtrer -->
+      <section class="stats-bar" id="stats-bar"></section>
+
+      <!-- Barre technicien : sélection sticky, mémorisée entre sessions -->
+      <section class="tech-bar">
+        <span class="tech-label" title="Cliquer un nom sélectionne pour la saisie rapide ET filtre le tableau">Traité par :</span>
+        <div id="tech-buttons" class="tech-buttons"></div>
+        <input id="tech-custom" class="tech-custom" placeholder="Autre…" />
+      </section>
+
+      <section class="filters">
+        <div class="search-wrap">
+          <input id="search" type="search" placeholder="Rechercher (agence, matériel, n° suivi)…" />
+          <button type="button" id="search-clear" class="search-clear hidden" title="Effacer la recherche">✕</button>
+        </div>
+        <select id="filter-status">
+          <option value="">Tous les statuts</option>
+          <option value="ordered">Commandé</option>
+          <option value="shipped">Expédié</option>
+          <option value="received">Reçu</option>
+          <option value="verified">Vérifié</option>
+        </select>
+        <label class="late-filter">
+          <input id="filter-late" type="checkbox" />
+          En retard uniquement
+        </label>
+        <label class="late-filter">
+          <input id="group-by-month" type="checkbox" />
+          Grouper par mois
+        </label>
+        <button type="button" id="btn-reset-filters" class="btn btn-sm btn-secondary hidden">Réinitialiser</button>
+        <span id="row-count" class="row-count"></span>
+      </section>
+      <div class="hint-bar">Ctrl+N : focus saisie · Entrée : valider · Échap : effacer · Ctrl+D : dupliquer dernière · clic sur un statut : changer rapidement · ↑↓ : naviguer les lignes · double-clic une cellule : modifier rapidement</div>
+
+      <!-- Barre d'actions groupées, visible seulement si des lignes sont sélectionnées -->
+      <section id="bulk-bar" class="bulk-bar hidden">
+        <span id="bulk-count" class="bulk-count"></span>
+        <div class="bulk-actions">
+          <span class="bulk-label">Statut :</span>
+          <button type="button" class="btn btn-sm btn-secondary" data-bulk-status="shipped">Expédié</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-bulk-status="ordered">Commandé</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-bulk-status="received">Reçu</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-bulk-status="verified">Vérifié</button>
+          <div class="spacer"></div>
+          <button type="button" id="bulk-export" class="btn btn-sm btn-secondary">Exporter la sélection</button>
+          <button type="button" id="bulk-delete" class="btn btn-sm btn-danger">Supprimer</button>
+          <button type="button" id="bulk-clear" class="btn btn-sm btn-secondary">Désélectionner</button>
+        </div>
+      </section>
+
+      <main>
+        <div class="table-scroll">
+          <table class="shipments-table" id="shipments-table">
+          <colgroup>
+            <col data-col="checkbox" style="width: 32px" />
+            <col data-col="status" style="width: 110px" />
+            <col data-col="supplier" style="width: 170px" />
+            <col data-col="material" style="width: 260px" />
+            <col data-col="tracking_number" style="width: 150px" />
+            <col data-col="carrier" style="width: 120px" />
+            <col data-col="recipient" style="width: 150px" />
+            <col data-col="expected_date" style="width: 110px" />
+            <col data-col="received_date" style="width: 110px" />
+            <col data-col="edit" style="width: 36px" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="checkbox-col"><input type="checkbox" id="select-all-checkbox" title="Tout sélectionner" /></th>
+              <th data-sort="status" data-col="status" class="sortable resizable">Statut<span class="col-resize-handle"></span></th>
+              <th data-sort="supplier" data-col="supplier" class="sortable resizable">Agence<span class="col-resize-handle"></span></th>
+              <th data-sort="material" data-col="material" class="sortable resizable">Matériel<span class="col-resize-handle"></span></th>
+              <th data-sort="tracking_number" data-col="tracking_number" class="sortable resizable">N° suivi<span class="col-resize-handle"></span></th>
+              <th data-sort="carrier" data-col="carrier" class="sortable resizable">Transporteur<span class="col-resize-handle"></span></th>
+              <th data-sort="recipient" data-col="recipient" class="sortable resizable">Destinataire<span class="col-resize-handle"></span></th>
+              <th data-sort="expected_date" data-col="expected_date" class="sortable resizable">Date prévue<span class="col-resize-handle"></span></th>
+              <th data-sort="received_date" data-col="received_date" class="sortable resizable">Date reçue<span class="col-resize-handle"></span></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Ligne de saisie rapide, toujours en haut -->
+            <tr id="quick-add-row" class="quick-row">
+              <td></td>
+              <td>
+                <div id="quick-status-pills" class="status-pills"></div>
+              </td>
+              <td><input id="q-supplier" list="agences-list" placeholder="Agence" required /></td>
+              <td><input id="q-material" list="materials-list" placeholder="Matériel" required /></td>
+              <td>
+                <input id="q-tracking" placeholder="N° suivi" />
+                <div id="q-duplicate-warning" class="duplicate-warning hidden">⚠ Déjà utilisé</div>
+              </td>
+              <td>
+                <select id="q-carrier">
+                  <option value="">Transporteur</option>
+                  <option value="TNT">TNT</option>
+                  <option value="DPD">DPD</option>
+                </select>
+              </td>
+              <td><input id="q-recipient" list="recipients-list" placeholder="Destinataire" /></td>
+              <td><input id="q-expected" type="date" /></td>
+              <td></td>
+              <td><button id="q-submit" class="btn btn-primary btn-sm" type="button">+ Ajouter</button></td>
+            </tr>
+          </tbody>
+          <tbody id="shipments-body">
+            <tr><td colspan="10" class="empty">Chargement…</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div id="load-more-wrap" class="load-more-wrap hidden">
+          <button id="btn-load-more" type="button" class="btn btn-secondary btn-sm">Charger plus</button>
+        </div>
+      </main>
+    </div>
+
+    <datalist id="agences-list"></datalist>
+    <datalist id="materials-list"></datalist>
+    <datalist id="recipients-list"></datalist>
+
+    <dialog id="shipment-dialog">
+      <form id="shipment-form" method="dialog">
+        <h2 id="dialog-title">Modifier l'expédition</h2>
+        <input type="hidden" id="f-id" />
+
+        <label>Agence *<input id="f-supplier" required /></label>
+        <label>Matériel *<input id="f-material" required /></label>
+        <label>N° de suivi<input id="f-tracking" /></label>
+        <button type="button" id="f-tracking-link" class="btn btn-sm btn-secondary hidden" style="justify-self: start;">📦 Suivre ce colis</button>
+        <label>Transporteur
+          <select id="f-carrier">
+            <option value="">—</option>
+            <option value="TNT">TNT</option>
+            <option value="DPD">DPD</option>
+          </select>
+        </label>
+        <label>Destinataire / service<input id="f-recipient" /></label>
+        <label>Statut
+          <select id="f-status">
+            <option value="ordered">Commandé</option>
+            <option value="shipped">Expédié</option>
+            <option value="received">Reçu</option>
+            <option value="verified">Vérifié</option>
+          </select>
+        </label>
+        <label>Date prévue<input id="f-expected" type="date" /></label>
+        <label id="received-row">Date reçue<input id="f-received" type="date" /></label>
+        <label class="full">Notes<textarea id="f-notes" rows="3"></textarea></label>
+
+        <div class="dialog-actions">
+          <button type="button" id="btn-delete" class="btn btn-danger hidden">Supprimer</button>
+          <div class="spacer"></div>
+          <button type="button" id="btn-cancel" class="btn btn-secondary">Annuler</button>
+          <button type="submit" id="btn-save" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast hidden">
+      <span id="toast-message"></span>
+      <button id="toast-undo" type="button" class="toast-undo hidden">Annuler</button>
+    </div>
+
+    <dialog id="import-dialog">
+      <form id="import-form" method="dialog">
+        <h2>Importer un fichier Excel</h2>
+        <label>Feuille à importer
+          <select id="import-sheet-select"></select>
+        </label>
+        <p class="hint">Les lignes seront ajoutées à celles déjà présentes (aucune suppression).</p>
+        <div class="dialog-actions">
+          <div class="spacer"></div>
+          <button type="button" id="btn-import-cancel" class="btn btn-secondary">Annuler</button>
+          <button type="submit" id="btn-import-confirm" class="btn btn-primary">Importer</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

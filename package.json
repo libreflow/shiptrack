@@ -1,0 +1,22 @@
+{
+  "name": "shiptrack",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "vitest run && cd src-tauri && cargo test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "jsdom": "^30.1.0",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-notification": "^2.4.0",
+    "@tauri-apps/plugin-opener": "^2.5.5"
+  }
+}

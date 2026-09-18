@@ -47,13 +47,13 @@
           <option value="received">Reçu</option>
           <option value="verified">Vérifié</option>
         </select>
-        <label class="late-filter">
+        <label class="late-filter" title="En retard uniquement">
           <input id="filter-late" type="checkbox" />
-          En retard uniquement
+          <span>En retard uniquement</span>
         </label>
-        <label class="late-filter">
+        <label class="late-filter" title="Grouper par mois">
           <input id="group-by-month" type="checkbox" />
-          Grouper par mois
+          <span>Grouper par mois</span>
         </label>
         <button type="button" id="btn-reset-filters" class="btn btn-sm btn-secondary hidden">Réinitialiser</button>
         <span id="row-count" class="row-count"></span>

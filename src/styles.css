@@ -74,6 +74,31 @@ body {
   min-height: 0; /* nécessaire pour que les flex-children puissent scroller sans déborder */
 }
 
+/* ---------- Responsive : la fenêtre Tauri est redimensionnable (min 800px),
+   ces règles évitent que les barres se chevauchent ou débordent en dessous
+   de la largeur de référence (~1300px) sur laquelle la mise en page a été conçue. ---------- */
+@media (max-width: 1300px) {
+  .app { padding: 10px 14px 12px; }
+  .hint-bar { display: none; } /* astuce clavier secondaire, sacrifiée en premier pour l'espace */
+}
+@media (max-width: 1100px) {
+  .btn { padding: 7px 10px; font-size: 13px; }
+  .tech-custom { width: 90px; }
+}
+@media (max-width: 950px) {
+  .topbar { flex-wrap: wrap; row-gap: 6px; }
+  .topbar h1 { font-size: 17px; }
+  .filters { flex-wrap: wrap; row-gap: 6px; }
+  .search-wrap { min-width: 180px; flex-basis: 100%; }
+  .row-count { flex-shrink: 0; }
+}
+@media (max-width: 850px) {
+  .stats-bar .stat-chip span:not(.stat-count):not(.stat-dot) { display: none; } /* garde juste le nombre + la puce */
+  .tech-bar { flex-wrap: wrap; }
+  .tech-custom { flex-basis: 100%; width: auto; }
+  .late-filter span { display: none; }
+}
+
 .topbar {
   display: flex;
   align-items: center;

@@ -53,6 +53,7 @@ async function loadApp({ shipments = [], lateCount = 0, presetLocalStorage = {} 
     core: { invoke: invokeMock },
     dialog: { save: vi.fn(), open: vi.fn() },
     opener: { openUrl: vi.fn(async () => {}) },
+    clipboardManager: { writeText: vi.fn(async () => {}) },
   };
   window.matchMedia =
     window.matchMedia ||
@@ -449,6 +450,62 @@ describe("main.js — filtre technicien (barre 'Traité par')", () => {
     document.getElementById("btn-reset-filters").dispatchEvent(new window.Event("click", { bubbles: true }));
 
     expect(document.getElementById("row-count").textContent).toBe("2 / 2");
+  });
+});
+
+describe("main.js — copie du numéro de suivi", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("affiche le numéro comme un bouton cliquable quand un tracking_number est présent", () => {
+    return loadApp({ shipments: [makeShipment({ tracking_number: "8117777435649222" })] }).then(() => {
+      const btn = document.querySelector("[data-copy-id]");
+      expect(btn).toBeTruthy();
+      expect(btn.textContent).toBe("8117777435649222");
+      expect(btn.tagName).toBe("BUTTON");
+    });
+  });
+
+  it("n'affiche pas de bouton copier quand le numéro est vide", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: null })] });
+    expect(document.querySelector("[data-copy-id]")).toBeFalsy();
+  });
+
+  it("cliquer le numéro copie sa valeur dans le presse-papier via writeText", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: "8117777435649222" })] });
+    const btn = document.querySelector("[data-copy-id]");
+    btn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(window.__TAURI__.clipboardManager.writeText).toHaveBeenCalledWith("8117777435649222");
+  });
+
+  it("cliquer le numéro affiche un toast de confirmation", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: "8117777435649222" })] });
+    const btn = document.querySelector("[data-copy-id]");
+    btn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("toast").classList.contains("hidden")).toBe(false);
+    expect(document.getElementById("toast-message").textContent).toContain("8117777435649222");
+  });
+
+  it("cliquer le numéro n'ouvre ni le dialog d'édition ni l'édition inline", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: "8117777435649222" })] });
+    const btn = document.querySelector("[data-copy-id]");
+    btn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    expect(document.getElementById("shipment-dialog").open).toBe(false);
+    expect(document.querySelector(".inline-edit-input")).toBeFalsy();
+  });
+
+  it("le bouton copier et le bouton de suivi coexistent sur la même cellule", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: "8117777435649222" })] });
+    const cell = document.querySelector('[data-field="tracking_number"]');
+    expect(cell.querySelector("[data-copy-id]")).toBeTruthy();
+    expect(cell.querySelector("[data-track-id]")).toBeTruthy();
   });
 });
 

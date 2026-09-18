@@ -370,7 +370,20 @@ main {
 .material-cell { cursor: text; }
 .material-cell .inline-edit-input { white-space: normal; }
 
-.tracking-value { vertical-align: middle; }
+.tracking-copy-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  vertical-align: middle;
+  border-radius: 3px;
+}
+.tracking-copy-btn:hover {
+  background: var(--menu-hover);
+  text-decoration: underline;
+}
 .tracking-link-btn {
   border: none;
   background: none;

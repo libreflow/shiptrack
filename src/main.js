@@ -1,6 +1,7 @@
 const { invoke } = window.__TAURI__.core;
 const { save, open } = window.__TAURI__.dialog;
 const { openUrl } = window.__TAURI__.opener;
+const { writeText } = window.__TAURI__.clipboardManager;
 import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload } from "./normalize.js";
 import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth } from "./months.js";
 import { sortShipments, isLate, filterShipments } from "./shipments.js";
@@ -294,9 +295,8 @@ function shipmentRowHtml(s) {
   const checked = selectedIds.has(s.id) ? "checked" : "";
   const cell = (field, value) =>
     `<td data-field="${field}" title="${escapeHtml(value || "Double-clic pour modifier")}">${escapeHtml(value ?? "")}</td>`;
-  const trackingUrl = buildTrackingUrl(s.tracking_number);
-  const trackingCell = trackingUrl
-    ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><span class="tracking-value">${escapeHtml(s.tracking_number)}</span><button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button></td>`
+  const trackingCell = s.tracking_number
+    ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><button type="button" class="tracking-copy-btn" data-copy-id="${s.id}" title="Copier le numéro de suivi">${escapeHtml(s.tracking_number)}</button><button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button></td>`
     : cell("tracking_number", s.tracking_number);
   return `
     <tr class="${late ? "row-late" : ""}" data-id="${s.id}">
@@ -379,6 +379,20 @@ async function openTrackingLink(id) {
   }
 }
 
+/* ---------- Copie du numéro de suivi dans le presse-papier ---------- */
+
+async function copyTrackingNumber(id) {
+  const s = allShipments.find((x) => x.id === id);
+  if (!s || !s.tracking_number) return;
+  try {
+    await writeText(s.tracking_number);
+    showToast(`N° de suivi copié : ${s.tracking_number}`);
+  } catch (err) {
+    console.error("copyTrackingNumber", err);
+    showToast("Impossible de copier le numéro de suivi", { error: true });
+  }
+}
+
 function wireRowInteractions() {
   const body = el("shipments-body");
 
@@ -387,6 +401,7 @@ function wireRowInteractions() {
       if (e.target.closest("[data-cycle-id]")) return; // géré séparément
       if (e.target.closest("[data-select-id]")) return; // géré séparément
       if (e.target.closest("[data-track-id]")) return; // géré séparément
+      if (e.target.closest("[data-copy-id]")) return; // géré séparément
       if (e.detail > 1) return; // laisse dblclick gérer l'édition inline sur les cellules éditables
       focusedRowId = tr.dataset.id;
       updateRowFocusHighlight();
@@ -402,11 +417,20 @@ function wireRowInteractions() {
     tr.querySelectorAll("[data-field]").forEach((cell) => {
       cell.addEventListener("dblclick", (e) => {
         if (e.target.closest("[data-track-id]")) return; // le bouton de suivi gère son propre clic
+        if (e.target.closest("[data-copy-id]")) return; // le bouton copier gère son propre clic
         e.stopPropagation();
         clearTimeout(rowClickTimer);
         startInlineEdit(cell, tr.dataset.id);
       });
     });
+  });
+
+  body.querySelectorAll("[data-copy-id]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyTrackingNumber(btn.dataset.copyId);
+    });
+    btn.addEventListener("dblclick", (e) => e.stopPropagation());
   });
 
   body.querySelectorAll("[data-track-id]").forEach((btn) => {

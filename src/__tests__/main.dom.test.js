@@ -206,6 +206,57 @@ describe("main.js — sélection multiple et actions groupées", () => {
     const deleteCalls = invokeMock.mock.calls.filter((c) => c[0] === "delete_shipment");
     expect(deleteCalls.length).toBe(0);
   });
+
+  // Régression : bulkSetStatus avalait les erreurs individuelles (try/catch
+  // silencieux) et affichait toujours "N mise(s) à jour" même en cas d'échec
+  // partiel, contrairement à bulkDelete qui compte et signale les échecs.
+  it("bulk statut signale les échecs partiels au lieu d'afficher un faux succès", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", status: "shipped" }), makeShipment({ id: "id-2", status: "ordered" })],
+    });
+    let call = 0;
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments")
+        return [
+          makeShipment({ id: "id-1", status: "shipped" }),
+          makeShipment({ id: "id-2", status: "ordered" }),
+        ];
+      if (cmd === "count_late_shipments") return 0;
+      if (cmd === "update_shipment") {
+        call++;
+        if (call === 2) throw "simulated failure";
+        return null;
+      }
+      return null;
+    });
+
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    document.querySelector('[data-bulk-status="received"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("toast").classList.contains("error")).toBe(true);
+    expect(document.getElementById("toast-message").textContent).toContain("échec");
+  });
+
+  it("bulk statut affiche un succès normal quand tout réussit", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", status: "shipped" }), makeShipment({ id: "id-2", status: "ordered" })],
+    });
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    document.querySelector('[data-bulk-status="received"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("toast").classList.contains("error")).toBe(false);
+    expect(document.getElementById("toast-message").textContent).toBe("2 expédition(s) mise(s) à jour");
+  });
 });
 
 describe("main.js — saisie rapide", () => {
@@ -295,6 +346,69 @@ describe("main.js — édition inline (double-clic cellule)", () => {
 
     const updateCalls = invokeMock.mock.calls.filter((c) => c[0] === "update_shipment");
     expect(updateCalls.length).toBe(0);
+  });
+
+  // Régression : vider un champ requis (Agence/Matériel) via l'édition inline
+  // envoyait null directement à update_shipment sans validation côté client,
+  // provoquant une erreur SQL brute ("NOT NULL constraint failed...") au lieu
+  // du message clair utilisé partout ailleurs dans l'app.
+  it("vider le champ Agence refuse la sauvegarde avec un message clair (pas d'appel update_shipment)", async () => {
+    await loadApp({ shipments: [makeShipment({ supplier: "Vitrolles Aéro" })] });
+    const cell = document.querySelector('[data-field="supplier"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const input = cell.querySelector(".inline-edit-input");
+    input.value = "";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const updateCalls = invokeMock.mock.calls.filter((c) => c[0] === "update_shipment");
+    expect(updateCalls.length).toBe(0);
+    expect(document.getElementById("toast").classList.contains("hidden")).toBe(false);
+    expect(document.getElementById("toast").classList.contains("error")).toBe(true);
+    expect(document.getElementById("toast-message").textContent).toContain("Agence");
+  });
+
+  it("vider le champ Matériel refuse la sauvegarde avec un message clair (pas d'appel update_shipment)", async () => {
+    await loadApp({ shipments: [makeShipment({ material: "Écran Dell" })] });
+    const cell = document.querySelector('[data-field="material"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const input = cell.querySelector(".inline-edit-input");
+    input.value = "   "; // uniquement des espaces = équivalent vide
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const updateCalls = invokeMock.mock.calls.filter((c) => c[0] === "update_shipment");
+    expect(updateCalls.length).toBe(0);
+    expect(document.getElementById("toast-message").textContent).toContain("Matériel");
+  });
+
+  it("vider un champ non requis (Destinataire) est accepté normalement", async () => {
+    await loadApp({ shipments: [makeShipment({ recipient: "Jean Dupont" })] });
+    const cell = document.querySelector('[data-field="recipient"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const input = cell.querySelector(".inline-edit-input");
+    input.value = "";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const updateCall = invokeMock.mock.calls.find((c) => c[0] === "update_shipment");
+    expect(updateCall).toBeTruthy();
+    expect(updateCall[1].shipment.recipient).toBeNull();
+  });
+
+  // Régression : le <select> d'édition inline du transporteur n'avait que les
+  // options TNT/DPD/— ; une valeur historique en base (ex: "Colissimo", saisie
+  // avant le verrouillage TNT/DPD) tombait silencieusement sur "" à l'ouverture
+  // faute d'option correspondante, risquant d'effacer la valeur au premier Entrée.
+  it("éditer un transporteur avec une valeur historique hors TNT/DPD la préserve dans le select", async () => {
+    await loadApp({ shipments: [makeShipment({ carrier: "Colissimo" })] });
+    const cell = document.querySelector('[data-field="carrier"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const select = cell.querySelector(".inline-edit-input");
+
+    expect(select.tagName).toBe("SELECT");
+    expect(select.value).toBe("Colissimo");
   });
 });
 
@@ -564,6 +678,46 @@ describe("main.js — lien de suivi 17TRACK", () => {
     await new Promise((r) => setTimeout(r, 250));
 
     expect(document.getElementById("f-tracking-link").classList.contains("hidden")).toBe(true);
+  });
+});
+
+describe("main.js — regroupement par mois", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Régression : items.filter(isLate) passait (élément, index, tableau) à
+  // isLate, dont le 2e paramètre est referenceDate = new Date() par défaut.
+  // L'index (0, 1, 2...) écrasait ce défaut sans jamais être `undefined`,
+  // donc `referenceDate.toDateString()` plantait (index n'a pas cette méthode)
+  // dès qu'on activait "Grouper par mois" — l'exception non catchée cassait
+  // le rendu. Corrigé en wrappant l'appel : items.filter((s) => isLate(s)).
+  it("activer 'Grouper par mois' avec des lignes en retard ne plante pas et affiche le compte", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", expected_date: "2020-01-15", status: "shipped" }),
+        makeShipment({ id: "id-2", expected_date: "2020-01-20", status: "ordered" }),
+      ],
+      lateCount: 2,
+    });
+
+    document.getElementById("group-by-month").checked = true;
+    document.getElementById("group-by-month").dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    const monthLateCount = document.querySelector(".month-late-count");
+    expect(monthLateCount).toBeTruthy();
+    expect(monthLateCount.textContent).toContain("2");
+  });
+
+  it("les lignes non en retard ne comptent pas dans le badge du mois", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", expected_date: "2099-01-15", status: "shipped" })],
+    });
+
+    document.getElementById("group-by-month").checked = true;
+    document.getElementById("group-by-month").dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(document.querySelector(".month-late-count")).toBeFalsy();
   });
 });
 

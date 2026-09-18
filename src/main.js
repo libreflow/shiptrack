@@ -338,7 +338,7 @@ function renderGroupedBody(sorted) {
   const html = [];
   for (const { key, items } of groups) {
     const collapsed = isMonthCollapsed(key, curMonth, collapsedOverrides);
-    const lateCount = items.filter(isLate).length;
+    const lateCount = items.filter((s) => isLate(s)).length;
     html.push(`
       <tr class="month-header-row" data-month-key="${key}">
         <td colspan="10">
@@ -473,6 +473,7 @@ function updateRowFocusHighlight() {
 
 const INLINE_TEXT_FIELDS = new Set(["supplier", "material", "tracking_number", "recipient"]);
 const INLINE_DATE_FIELDS = new Set(["expected_date", "received_date"]);
+const INLINE_REQUIRED_FIELDS = { supplier: "Agence", material: "Matériel" };
 
 function buildUpdatePayload(s, overrides) {
   return {
@@ -503,6 +504,14 @@ function startInlineEdit(cell, id) {
   if (field === "carrier") {
     input = document.createElement("select");
     input.innerHTML = `<option value="">—</option><option value="TNT">TNT</option><option value="DPD">DPD</option>`;
+    // Valeur historique hors TNT/DPD (donnée héritée) : ajoute une option dédiée
+    // pour ne pas la faire disparaître silencieusement au premier Entrée.
+    if (originalValue && !["", "TNT", "DPD"].includes(originalValue)) {
+      const legacyOption = document.createElement("option");
+      legacyOption.value = originalValue;
+      legacyOption.textContent = `${originalValue} (valeur existante)`;
+      input.appendChild(legacyOption);
+    }
     input.value = originalValue;
   } else {
     input = document.createElement("input");
@@ -538,6 +547,13 @@ function startInlineEdit(cell, id) {
       nextValue = normalizeAgainstExisting(nextValue, index[field] ?? [], {
         titleCase: field === "supplier",
       });
+    }
+
+    if (!nextValue && INLINE_REQUIRED_FIELDS[field]) {
+      settled = false; // laisse l'utilisateur corriger sans perdre sa saisie
+      showToast(`Le champ "${INLINE_REQUIRED_FIELDS[field]}" est requis`, { error: true });
+      input.focus();
+      return;
     }
 
     if (nextValue === (originalValue || null)) {
@@ -651,6 +667,7 @@ async function bulkSetStatus(status) {
 
   const receivedDate = status === "received" || status === "verified" ? todayIso() : null;
 
+  let failCount = 0;
   for (const id of ids) {
     const s = allShipments.find((x) => x.id === id);
     if (!s) continue;
@@ -671,10 +688,16 @@ async function bulkSetStatus(status) {
       });
     } catch (err) {
       console.error("bulkSetStatus", id, err);
+      failCount++;
     }
   }
 
-  showToast(`${ids.length} expédition(s) mise(s) à jour`);
+  showToast(
+    failCount > 0
+      ? `${ids.length - failCount} mise(s) à jour, ${failCount} échec(s)`
+      : `${ids.length} expédition(s) mise(s) à jour`,
+    { error: failCount > 0 }
+  );
   selectedIds.clear();
   await loadShipments();
 }

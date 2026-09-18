@@ -35,10 +35,34 @@ function makeShipment(overrides = {}) {
 }
 
 let invokeMock;
+// Chaque test recharge main.js à froid (vi.resetModules + re-import) pour
+// repartir d'un état module propre, mais window/document sont partagés par
+// TOUT le fichier de test (jsdom n'est recréé qu'une fois par fichier, pas
+// par test). Sans nettoyage, les listeners document/window de l'instance de
+// module précédente restent attachés et peuvent interférer (leur closure
+// référence un ancien `selectedIds`/`allShipments` périmé). On les traque et
+// on les retire avant chaque rechargement.
+let trackedListeners = [];
+function trackListenersOn(target) {
+  const original = target.addEventListener.bind(target);
+  target.addEventListener = (...args) => {
+    trackedListeners.push([target, args]);
+    return original(...args);
+  };
+}
+function clearTrackedListeners() {
+  for (const [target, args] of trackedListeners) {
+    target.removeEventListener(...args);
+  }
+  trackedListeners = [];
+}
 
 async function loadApp({ shipments = [], lateCount = 0, presetLocalStorage = {} } = {}) {
+  clearTrackedListeners();
   // Repart d'un DOM propre à chaque test à partir du vrai fichier index.html.
   document.body.innerHTML = BODY_HTML;
+  trackListenersOn(window);
+  trackListenersOn(document);
 
   invokeMock = vi.fn(async (cmd) => {
     if (cmd === "list_shipments") return shipments;
@@ -175,6 +199,34 @@ describe("main.js — sélection multiple et actions groupées", () => {
 
     expect(document.getElementById("bulk-bar").classList.contains("hidden")).toBe(false);
     expect(document.getElementById("bulk-count").textContent).toBe("1 sélectionnée");
+  });
+
+  // Régression : "Tout sélectionner" ne cochait que les lignes RENDUES à
+  // l'écran (limitées par la pagination PAGE_SIZE=150), pas toutes les lignes
+  // qui correspondent au filtre actuel — malgré son nom. Avec plus de lignes
+  // filtrées que la page courante, l'utilisateur croyait avoir tout sélectionné
+  // (et pouvait supprimer en masse) alors qu'il en restait de côté.
+  it("'Tout sélectionner' sélectionne toutes les lignes filtrées, pas seulement celles rendues (pagination)", async () => {
+    const shipments = Array.from({ length: 200 }, (_, i) => makeShipment({ id: `id-${i}` }));
+    await loadApp({ shipments });
+
+    const selectAll = document.getElementById("select-all-checkbox");
+    selectAll.checked = true;
+    selectAll.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(document.getElementById("bulk-count").textContent).toBe("200 sélectionnées");
+  });
+
+  it("'Tout sélectionner' redevient coché même après pagination (Charger plus)", async () => {
+    const shipments = Array.from({ length: 200 }, (_, i) => makeShipment({ id: `id-${i}` }));
+    await loadApp({ shipments });
+
+    const selectAll = document.getElementById("select-all-checkbox");
+    selectAll.checked = true;
+    selectAll.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(selectAll.checked).toBe(true);
+    expect(selectAll.indeterminate).toBe(false);
   });
 
   it("bulk-delete demande confirmation puis supprime chaque ligne sélectionnée", async () => {

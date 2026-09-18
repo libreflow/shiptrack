@@ -644,15 +644,14 @@ function renderBulkBar() {
 
 function updateSelectAllCheckbox() {
   const cb = el("select-all-checkbox");
-  const rowCheckboxes = [...document.querySelectorAll("[data-select-id]")];
-  if (rowCheckboxes.length === 0) {
+  if (lastFilteredIds.length === 0) {
     cb.checked = false;
     cb.indeterminate = false;
     return;
   }
-  const checkedCount = rowCheckboxes.filter((c) => c.checked).length;
-  cb.checked = checkedCount === rowCheckboxes.length;
-  cb.indeterminate = checkedCount > 0 && checkedCount < rowCheckboxes.length;
+  const selectedCount = lastFilteredIds.filter((id) => selectedIds.has(id)).length;
+  cb.checked = selectedCount === lastFilteredIds.length;
+  cb.indeterminate = selectedCount > 0 && selectedCount < lastFilteredIds.length;
 }
 
 function clearSelection() {
@@ -1290,13 +1289,12 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   el("select-all-checkbox").addEventListener("change", (e) => {
-    const rowCheckboxes = document.querySelectorAll("[data-select-id]");
-    rowCheckboxes.forEach((cb) => {
-      cb.checked = e.target.checked;
-      if (e.target.checked) selectedIds.add(cb.dataset.selectId);
-      else selectedIds.delete(cb.dataset.selectId);
-    });
-    renderBulkBar();
+    if (e.target.checked) {
+      lastFilteredIds.forEach((id) => selectedIds.add(id));
+    } else {
+      lastFilteredIds.forEach((id) => selectedIds.delete(id));
+    }
+    renderTable();
   });
 
   el("bulk-clear").addEventListener("click", clearSelection);

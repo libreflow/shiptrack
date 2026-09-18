@@ -246,6 +246,12 @@ body {
   border-radius: 6px;
   font-size: 14px;
 }
+.filter-status-icon {
+  width: 60px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 15px;
+}
 #search { flex: 1; }
 .search-wrap { position: relative; flex: 1; display: flex; }
 .search-wrap input { width: 100%; padding-right: 28px; }

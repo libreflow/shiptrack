@@ -1045,6 +1045,21 @@ function updateTrackingLinkButton() {
   btn.classList.toggle("hidden", !url);
 }
 
+// Le backend efface silencieusement received_date si le statut n'est pas
+// "received"/"verified" (voir update_shipment_impl côté Rust). Sans ce
+// garde-fou, l'utilisateur pouvait saisir une date reçue dans le dialog
+// avec un statut "Commandé"/"Expédié", cliquer Enregistrer, et voir sa
+// saisie disparaître sans aucun avertissement.
+function updateReceivedRowVisibility() {
+  const status = el("f-status").value;
+  const allowsReceivedDate = status === "received" || status === "verified";
+  const row = el("received-row");
+  const input = el("f-received");
+  row.classList.toggle("hidden", !allowsReceivedDate);
+  input.disabled = !allowsReceivedDate;
+  if (!allowsReceivedDate) input.value = "";
+}
+
 function openEditDialog(id) {
   const s = allShipments.find((x) => x.id === id);
   if (!s) return;
@@ -1061,6 +1076,7 @@ function openEditDialog(id) {
   el("f-notes").value = s.notes ?? "";
   el("btn-delete").classList.remove("hidden");
   updateTrackingLinkButton();
+  updateReceivedRowVisibility();
   el("shipment-dialog").showModal();
 }
 
@@ -1225,6 +1241,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   el("q-tracking").addEventListener("input", checkDuplicateTracking);
   el("f-tracking").addEventListener("input", updateTrackingLinkButton);
+  el("f-status").addEventListener("change", updateReceivedRowVisibility);
   el("f-tracking-link").addEventListener("click", () => {
     const url = buildTrackingUrl(el("f-tracking").value);
     if (url) {

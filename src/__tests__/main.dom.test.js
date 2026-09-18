@@ -311,6 +311,53 @@ describe("main.js — sélection multiple et actions groupées", () => {
   });
 });
 
+describe("main.js — champ 'Date reçue' du dialog selon le statut", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Régression : le backend (update_shipment_impl côté Rust) efface
+  // silencieusement received_date si le statut n'est pas received/verified.
+  // Sans garde-fou côté UI, l'utilisateur pouvait saisir une date dans
+  // "Date reçue" avec un statut "Commandé"/"Expédié", cliquer Enregistrer,
+  // et voir sa saisie disparaître sans aucun message.
+  it("le champ Date reçue est masqué/désactivé quand le statut ne l'autorise pas", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", status: "shipped", received_date: null })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    expect(document.getElementById("received-row").classList.contains("hidden")).toBe(true);
+    expect(document.getElementById("f-received").disabled).toBe(true);
+  });
+
+  it("le champ Date reçue redevient visible/actif dès que le statut passe à Reçu", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", status: "shipped", received_date: null })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("f-status").value = "received";
+    document.getElementById("f-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(document.getElementById("received-row").classList.contains("hidden")).toBe(false);
+    expect(document.getElementById("f-received").disabled).toBe(false);
+  });
+
+  it("changer le statut vers un état qui n'autorise pas la date reçue vide le champ dans l'UI", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", status: "received", received_date: "2026-01-20" })],
+    });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(document.getElementById("f-received").value).toBe("2026-01-20");
+
+    document.getElementById("f-status").value = "shipped";
+    document.getElementById("f-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(document.getElementById("f-received").value).toBe("");
+  });
+});
+
+
 describe("main.js — saisie rapide", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

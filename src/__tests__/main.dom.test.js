@@ -739,7 +739,8 @@ describe("main.js — filtre technicien (barre 'Traité par')", () => {
 
     expect(document.getElementById("row-count").textContent).toBe("2 / 2");
     const btn = findBtn();
-    expect(btn.classList.contains("active")).toBe(true); // toujours présélectionné pour la saisie
+    expect(btn.classList.contains("preselected")).toBe(true); // toujours présélectionné pour la saisie
+    expect(btn.classList.contains("active")).toBe(false); // mais plus "actif" comme filtre
     expect(btn.classList.contains("filter-active")).toBe(false);
   });
 
@@ -789,6 +790,31 @@ describe("main.js — filtre technicien (barre 'Traité par')", () => {
     // mais son filtrage est bien désactivé (pas de "filter-active").
     const julieBtnAfter = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
     expect(julieBtnAfter.classList.contains("filter-active")).toBe(false);
+  });
+
+  // Régression : julie et "Tous" apparaissaient TOUS LES DEUX avec le style
+  // "actif" (fond plein bleu) après être passé de julie à Tous, car "active"
+  // servait à la fois pour "c'est le filtre en cours" et "c'est juste
+  // présélectionné pour la saisie" — les deux boutons semblaient allumés en
+  // même temps, trompeur pour l'utilisateur.
+  it("après être passé d'un technicien à 'Tous', un seul bouton a le style de filtre actif à la fois", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", notes: "Traité par: julie" }),
+        makeShipment({ id: "id-2", notes: "Traité par: Amine" }),
+      ],
+    });
+    const julieBtn = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
+    julieBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.querySelector("[data-tech-all]").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    const activeButtons = [...document.querySelectorAll(".tech-btn.active")];
+    expect(activeButtons).toHaveLength(1);
+    expect(activeButtons[0].dataset.techAll).toBeDefined();
+
+    const julieBtnAfter = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
+    expect(julieBtnAfter.classList.contains("active")).toBe(false);
+    expect(julieBtnAfter.classList.contains("preselected")).toBe(true);
   });
 });
 

@@ -225,6 +225,16 @@ body {
   box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--brand);
 }
 .tech-btn.active.filter-active::after { content: " 🔎"; }
+/* Présélectionné pour la saisie rapide mais PAS le filtre actif : ne doit pas
+   ressembler au bouton qui filtre réellement (fond plein), sinon les deux
+   boutons semblent "allumés" en même temps de façon trompeuse. */
+.tech-btn.preselected {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--brand);
+  border-width: 2px;
+  font-weight: 600;
+}
 .tech-custom {
   border: 1px solid var(--border);
   border-radius: 999px;

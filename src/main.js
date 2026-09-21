@@ -794,10 +794,16 @@ async function cycleStatus(id) {
 function renderTechButtons() {
   const container = el("tech-buttons");
   const allBtn = `<button type="button" class="tech-btn tech-btn-all ${!technicianFilterActive ? "active filter-active" : ""}" data-tech-all title="Afficher toutes les expéditions, peu importe qui les a traitées">Tous</button>`;
-  const techButtons = KNOWN_TECHS.map(
-    (t) =>
-      `<button type="button" class="tech-btn ${t === selectedTech ? "active" : ""} ${t === selectedTech && technicianFilterActive ? "filter-active" : ""}" data-tech="${escapeHtml(t)}" title="Clic : sélectionner pour la saisie et filtrer le tableau">${escapeHtml(t)}</button>`
-  ).join("");
+  const techButtons = KNOWN_TECHS.map((t) => {
+    const isSelected = t === selectedTech;
+    const isFiltering = isSelected && technicianFilterActive;
+    // "active" = c'est CE bouton qui filtre actuellement la vue (fond plein).
+    // "preselected" = juste présélectionné pour la saisie rapide, sans filtrer
+    // (style discret) : les deux ne doivent jamais se confondre visuellement,
+    // sinon "Tous" et un technicien semblent actifs en même temps.
+    const stateClass = isFiltering ? "active filter-active" : isSelected ? "preselected" : "";
+    return `<button type="button" class="tech-btn ${stateClass}" data-tech="${escapeHtml(t)}" title="Clic : sélectionner pour la saisie et filtrer le tableau">${escapeHtml(t)}</button>`;
+  }).join("");
   container.innerHTML = allBtn + techButtons;
 
   el("tech-buttons")

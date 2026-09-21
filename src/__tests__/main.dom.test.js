@@ -358,6 +358,61 @@ describe("main.js — champ 'Date reçue' du dialog selon le statut", () => {
 });
 
 
+describe("main.js — avertissement de doublon dans le dialog complet", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Régression : l'avertissement "déjà utilisé" n'existait que sur la saisie
+  // rapide (checkDuplicateTracking). Le dialog complet d'édition n'avait
+  // aucun avertissement, alors que c'est le même risque de doublon.
+  it("affiche l'avertissement quand on tape un n° de suivi déjà utilisé par une autre ligne", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", tracking_number: "TRK1" }),
+        makeShipment({ id: "id-2", tracking_number: "TRK2" }),
+      ],
+    });
+    document.querySelector('tr[data-id="id-2"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("f-tracking").value = "TRK1";
+    document.getElementById("f-tracking").dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    expect(document.getElementById("f-duplicate-warning").classList.contains("hidden")).toBe(false);
+  });
+
+  it("n'affiche pas l'avertissement pour le propre n° de suivi de la ligne éditée", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", tracking_number: "TRK1" })],
+    });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Le champ contient déjà TRK1 (sa propre valeur) à l'ouverture : pas de faux positif.
+    expect(document.getElementById("f-duplicate-warning").classList.contains("hidden")).toBe(true);
+  });
+
+  it("masque l'avertissement une fois le champ vidé", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", tracking_number: "TRK1" }),
+        makeShipment({ id: "id-2", tracking_number: "TRK2" }),
+      ],
+    });
+    document.querySelector('tr[data-id="id-2"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("f-tracking").value = "TRK1";
+    document.getElementById("f-tracking").dispatchEvent(new window.Event("input", { bubbles: true }));
+    document.getElementById("f-tracking").value = "";
+    document.getElementById("f-tracking").dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    expect(document.getElementById("f-duplicate-warning").classList.contains("hidden")).toBe(true);
+  });
+});
+
+
 describe("main.js — saisie rapide", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

@@ -72,6 +72,7 @@ fn clean(s: &str) -> Option<String> {
 pub struct ImportResult {
     pub inserted: usize,
     pub skipped: usize,
+    pub duplicates: usize,
     pub imported: Vec<Shipment>,
 }
 
@@ -82,9 +83,26 @@ pub struct ImportResult {
 fn import_sheet_impl(
     conn: &rusqlite::Connection,
     rows: &[Vec<calamine::Data>],
-) -> Result<(usize, usize), String> {
+) -> Result<(usize, usize, usize), String> {
     let mut inserted = 0usize;
     let mut skipped = 0usize;
+    let mut duplicates = 0usize;
+
+    // N° de suivi déjà en base avant cet import, pour détecter les ré-imports
+    // accidentels du même fichier (aucune contrainte UNIQUE en base : un n° de
+    // suivi peut légitimement être vide/partagé sur du texte libre historique
+    // comme "tnt"/"dpd", donc on avertit sans jamais bloquer l'import).
+    let mut existing_tracking: std::collections::HashSet<String> = {
+        let mut stmt = conn
+            .prepare("SELECT tracking_number FROM shipments WHERE tracking_number IS NOT NULL AND tracking_number != ''")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        rows
+    };
 
     for row in rows.iter().skip(1) {
         // skip header row
@@ -103,6 +121,14 @@ fn import_sheet_impl(
         if agence.is_none() && material.is_none() {
             skipped += 1;
             continue;
+        }
+
+        if let Some(t) = &tracking {
+            if existing_tracking.contains(t) {
+                duplicates += 1;
+            } else {
+                existing_tracking.insert(t.clone());
+            }
         }
 
         let expected_date = parse_excel_date(&date_raw);
@@ -139,7 +165,7 @@ fn import_sheet_impl(
         inserted += 1;
     }
 
-    Ok((inserted, skipped))
+    Ok((inserted, skipped, duplicates))
 }
 
 #[tauri::command]
@@ -169,7 +195,7 @@ pub fn import_excel_sheet(
         ids
     };
 
-    let (inserted, skipped) = import_sheet_impl(&conn, &rows)?;
+    let (inserted, skipped, duplicates) = import_sheet_impl(&conn, &rows)?;
 
     let mut stmt = conn
         .prepare("SELECT * FROM shipments")
@@ -182,7 +208,7 @@ pub fn import_excel_sheet(
 
     let imported = all.into_iter().filter(|s| !before_ids.contains(&s.id)).collect();
 
-    Ok(ImportResult { inserted, skipped, imported })
+    Ok(ImportResult { inserted, skipped, duplicates, imported })
 }
 
 #[tauri::command]
@@ -283,9 +309,10 @@ mod tests {
             ],
         ];
 
-        let (inserted, skipped) = import_sheet_impl(&conn, &rows).unwrap();
+        let (inserted, skipped, duplicates) = import_sheet_impl(&conn, &rows).unwrap();
         assert_eq!(inserted, 1);
         assert_eq!(skipped, 0);
+        assert_eq!(duplicates, 0);
 
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM shipments", [], |r| r.get(0))
@@ -312,7 +339,7 @@ mod tests {
             vec![data_empty(), data_empty(), data_empty(), data_empty(), data_empty(), data_empty()],
         ];
 
-        let (inserted, skipped) = import_sheet_impl(&conn, &rows).unwrap();
+        let (inserted, skipped, _) = import_sheet_impl(&conn, &rows).unwrap();
         assert_eq!(inserted, 0);
         assert_eq!(skipped, 1);
     }
@@ -332,12 +359,68 @@ mod tests {
             ],
         ];
 
-        let (inserted, _) = import_sheet_impl(&conn, &rows).unwrap();
+        let (inserted, _, _) = import_sheet_impl(&conn, &rows).unwrap();
         assert_eq!(inserted, 1);
 
         let expected_date: Option<String> = conn
             .query_row("SELECT expected_date FROM shipments", [], |r| r.get(0))
             .unwrap();
         assert_eq!(expected_date, None);
+    }
+
+    #[test]
+    fn import_sheet_impl_detects_duplicate_tracking_numbers_already_in_db() {
+        let conn = test_db();
+        conn.execute(
+            "INSERT INTO shipments (id, supplier, tracking_number, material, status) VALUES ('existing', 'Voiron', 'TRK-1', 'Écran', 'shipped')",
+            [],
+        )
+        .unwrap();
+
+        let rows = vec![
+            vec![data_str("DATE"), data_str("AGENCE")], // en-tête
+            vec![
+                data_str("28/01/2026"),
+                data_str("Vannes"),
+                data_empty(),
+                data_str("Envoi"),
+                data_str("TRK-1"), // même n° de suivi -> réimport probable
+                data_str("PC portable"),
+            ],
+        ];
+
+        let (inserted, skipped, duplicates) = import_sheet_impl(&conn, &rows).unwrap();
+        assert_eq!(inserted, 1); // la ligne est quand même importée, juste signalée
+        assert_eq!(skipped, 0);
+        assert_eq!(duplicates, 1);
+    }
+
+    #[test]
+    fn import_sheet_impl_detects_duplicates_within_the_same_import() {
+        let conn = test_db();
+        let rows = vec![
+            vec![data_str("DATE"), data_str("AGENCE")], // en-tête
+            vec![
+                data_str("28/01/2026"),
+                data_str("Vannes"),
+                data_empty(),
+                data_str("Envoi"),
+                data_str("TRK-2"),
+                data_str("PC portable"),
+            ],
+            vec![
+                data_str("29/01/2026"),
+                data_str("Voiron"),
+                data_empty(),
+                data_str("Envoi"),
+                data_str("TRK-2"), // dupliqué dans le même fichier
+                data_str("Écran"),
+            ],
+        ];
+
+        let (inserted, skipped, duplicates) = import_sheet_impl(&conn, &rows).unwrap();
+        assert_eq!(inserted, 2);
+        assert_eq!(skipped, 0);
+        assert_eq!(duplicates, 1);
     }
 }

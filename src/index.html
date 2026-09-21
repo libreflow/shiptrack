@@ -153,7 +153,9 @@
 
         <label>Agence *<input id="f-supplier" required /></label>
         <label>Matériel *<input id="f-material" required /></label>
-        <label>N° de suivi<input id="f-tracking" /></label>
+        <label>N° de suivi<input id="f-tracking" />
+          <div id="f-duplicate-warning" class="duplicate-warning hidden">⚠ Déjà utilisé sur une autre expédition</div>
+        </label>
         <button type="button" id="f-tracking-link" class="btn btn-sm btn-secondary hidden" style="justify-self: start;">📦 Suivre ce colis</button>
         <label>Transporteur
           <select id="f-carrier">

@@ -845,15 +845,20 @@ function resetQuickRow() {
   el("q-duplicate-warning").classList.add("hidden");
 }
 
-function checkDuplicateTracking() {
+function checkDuplicateTracking(value, { excludeId = null } = {}) {
+  return allShipments.some(
+    (s) => s.id !== excludeId && s.tracking_number && s.tracking_number.trim() === value
+  );
+}
+
+function updateQuickDuplicateWarning() {
   const value = el("q-tracking").value.trim();
   const warning = el("q-duplicate-warning");
   if (!value) {
     warning.classList.add("hidden");
     return;
   }
-  const exists = allShipments.some((s) => s.tracking_number && s.tracking_number.trim() === value);
-  warning.classList.toggle("hidden", !exists);
+  warning.classList.toggle("hidden", !checkDuplicateTracking(value));
 }
 
 async function submitQuickRow() {
@@ -1039,6 +1044,17 @@ function setupColumnResizing() {
 
 /* ---------- Dialog d'édition / suppression ---------- */
 
+function updateDialogDuplicateWarning() {
+  const value = el("f-tracking").value.trim();
+  const warning = el("f-duplicate-warning");
+  const currentId = el("f-id").value;
+  if (!value) {
+    warning.classList.add("hidden");
+    return;
+  }
+  warning.classList.toggle("hidden", !checkDuplicateTracking(value, { excludeId: currentId }));
+}
+
 function updateTrackingLinkButton() {
   const btn = el("f-tracking-link");
   const url = buildTrackingUrl(el("f-tracking").value);
@@ -1077,6 +1093,7 @@ function openEditDialog(id) {
   el("btn-delete").classList.remove("hidden");
   updateTrackingLinkButton();
   updateReceivedRowVisibility();
+  updateDialogDuplicateWarning();
   el("shipment-dialog").showModal();
 }
 
@@ -1191,11 +1208,10 @@ async function confirmImport(e) {
       sheetName,
     });
     el("import-dialog").close();
-    showToast(
-      result.skipped > 0
-        ? `${result.inserted} expédition(s) importée(s), ${result.skipped} ligne(s) vide(s) ignorée(s)`
-        : `${result.inserted} expédition(s) importée(s)`
-    );
+    const parts = [`${result.inserted} expédition(s) importée(s)`];
+    if (result.skipped > 0) parts.push(`${result.skipped} ligne(s) vide(s) ignorée(s)`);
+    if (result.duplicates > 0) parts.push(`⚠ ${result.duplicates} n° de suivi déjà existant(s) (réimport possible)`);
+    showToast(parts.join(", "), { error: result.duplicates > 0 });
     await loadShipments();
   } catch {
     // erreur déjà affichée par safeInvoke
@@ -1239,8 +1255,11 @@ window.addEventListener("DOMContentLoaded", () => {
     exportXlsx(lastFilteredIds);
   });
 
-  el("q-tracking").addEventListener("input", checkDuplicateTracking);
-  el("f-tracking").addEventListener("input", updateTrackingLinkButton);
+  el("q-tracking").addEventListener("input", updateQuickDuplicateWarning);
+  el("f-tracking").addEventListener("input", () => {
+    updateTrackingLinkButton();
+    updateDialogDuplicateWarning();
+  });
   el("f-status").addEventListener("change", updateReceivedRowVisibility);
   el("f-tracking-link").addEventListener("click", () => {
     const url = buildTrackingUrl(el("f-tracking").value);

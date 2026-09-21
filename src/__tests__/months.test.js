@@ -6,6 +6,7 @@ import {
   isMonthCollapsed,
   toggleMonthOverride,
   groupByMonth,
+  formatDateFr,
 } from "../months.js";
 
 describe("monthKey", () => {
@@ -109,5 +110,23 @@ describe("groupByMonth", () => {
 
   it("retourne un tableau vide pour une liste vide", () => {
     expect(groupByMonth([])).toEqual([]);
+  });
+});
+
+describe("formatDateFr", () => {
+  it("convertit une date ISO en format français JJ/MM/AAAA", () => {
+    expect(formatDateFr("2026-03-05")).toBe("05/03/2026");
+    expect(formatDateFr("2026-12-31")).toBe("31/12/2026");
+    expect(formatDateFr("2023-02-23")).toBe("23/02/2023");
+  });
+
+  it("retourne une chaîne vide pour une valeur vide/null/undefined", () => {
+    expect(formatDateFr("")).toBe("");
+    expect(formatDateFr(null)).toBe("");
+    expect(formatDateFr(undefined)).toBe("");
+  });
+
+  it("retourne la valeur telle quelle si le format n'est pas ISO reconnu", () => {
+    expect(formatDateFr("pas une date")).toBe("pas une date");
   });
 });

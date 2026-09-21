@@ -63,3 +63,17 @@ export function groupByMonth(shipments) {
   }
   return order.map((key) => ({ key, items: byKey.get(key) }));
 }
+
+/**
+ * Formate une date "YYYY-MM-DD" (format de stockage SQLite/HTML date input)
+ * en "JJ/MM/AAAA" pour l'affichage français. Ne touche jamais la valeur
+ * stockée/triée/éditée (toujours ISO) — uniquement l'affichage dans le
+ * tableau. Retourne "" pour une date vide/invalide (jamais une exception).
+ */
+export function formatDateFr(isoDate) {
+  if (!isoDate) return "";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
+  if (!match) return isoDate; // valeur inattendue : on l'affiche telle quelle plutôt que de la masquer
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}

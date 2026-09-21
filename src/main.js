@@ -3,9 +3,9 @@ const { save, open } = window.__TAURI__.dialog;
 const { openUrl } = window.__TAURI__.opener;
 const { writeText } = window.__TAURI__.clipboardManager;
 import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload } from "./normalize.js";
-import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth } from "./months.js";
+import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth, formatDateFr } from "./months.js";
 import { sortShipments, isLate, filterShipments } from "./shipments.js";
-import { buildTrackingUrl, isValidTrackingValue } from "./tracking.js";
+import { buildTrackingUrl, isValidTrackingValue, inferCarrier } from "./tracking.js";
 
 const STATUS_LABELS = {
   ordered: "Commandé",
@@ -321,6 +321,16 @@ function shipmentRowHtml(s) {
   const checked = selectedIds.has(s.id) ? "checked" : "";
   const cell = (field, value) =>
     `<td data-field="${field}" title="${escapeHtml(value || "Double-clic pour modifier")}">${escapeHtml(value ?? "")}</td>`;
+  const dateCell = (field, value) => {
+    const display = formatDateFr(value);
+    return `<td data-field="${field}" title="${escapeHtml(display || "Double-clic pour modifier")}">${escapeHtml(display)}</td>`;
+  };
+  const inferredCarrier = inferCarrier(s.carrier, s.tracking_number);
+  const carrierCell = s.carrier
+    ? `<td data-field="carrier" title="${escapeHtml(s.carrier)}">${escapeHtml(s.carrier)}</td>`
+    : inferredCarrier
+      ? `<td data-field="carrier" class="carrier-inferred" title="Transporteur déduit du n° de suivi — non renseigné explicitement">${escapeHtml(inferredCarrier)}</td>`
+      : `<td data-field="carrier" title="Double-clic pour modifier"></td>`;
   const trackingCell = s.tracking_number
     ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><button type="button" class="tracking-copy-btn" data-copy-id="${s.id}" title="Copier le numéro de suivi">${escapeHtml(s.tracking_number)}</button><button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button></td>`
     : `<td data-field="tracking_number" class="tracking-empty" title="Double-clic pour renseigner le n° de suivi">À éditer</td>`;
@@ -331,10 +341,10 @@ function shipmentRowHtml(s) {
       ${cell("supplier", s.supplier)}
       <td class="material-cell" data-field="material" title="${escapeHtml(s.material)}">${escapeHtml(s.material)}</td>
       ${trackingCell}
-      ${cell("carrier", s.carrier)}
+      ${carrierCell}
       ${cell("recipient", s.recipient)}
-      ${cell("expected_date", s.expected_date)}
-      ${cell("received_date", s.received_date)}
+      ${dateCell("expected_date", s.expected_date)}
+      ${dateCell("received_date", s.received_date)}
       <td class="row-edit-hint" title="Cliquer la ligne pour tout modifier">✎</td>
     </tr>`;
 }

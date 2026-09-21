@@ -43,3 +43,21 @@ export function isValidTrackingValue(value, normalizeFn) {
   const parts = trimmed.split(/[\s,-]+/).filter(Boolean);
   return parts.length > 0 && parts.every((p) => /^\d{8,20}$/.test(p));
 }
+
+/**
+ * Déduit un transporteur à afficher quand le champ "Transporteur" n'a pas été
+ * renseigné explicitement. En pratique, un n° de suivi numérique (format
+ * TNT/DPD) est quasi toujours un envoi TNT — on l'affiche par défaut comme
+ * indication utile, SANS jamais l'écrire en base (uniquement à l'affichage,
+ * l'utilisateur garde la main pour corriger en DPD si besoin).
+ * Ne devine rien pour "Non sécurisé" (peut être TNT ou DPD) ni pour un champ
+ * vide : dans ces cas on retourne null (aucune valeur affichée par défaut).
+ */
+export function inferCarrier(carrier, trackingNumber) {
+  if (carrier) return carrier;
+  const trimmed = (trackingNumber ?? "").trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/[\s,-]+/).filter(Boolean);
+  const isNumericTracking = parts.length > 0 && parts.every((p) => /^\d{8,20}$/.test(p));
+  return isNumericTracking ? "TNT" : null;
+}

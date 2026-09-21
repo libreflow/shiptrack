@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTrackingUrl, isValidTrackingValue } from "../tracking.js";
+import { buildTrackingUrl, isValidTrackingValue, inferCarrier } from "../tracking.js";
 
 describe("buildTrackingUrl", () => {
   it("construit une URL 17TRACK valide pour un numéro simple", () => {
@@ -77,5 +77,31 @@ describe("isValidTrackingValue", () => {
   it("rejette un nombre trop court ou trop long", () => {
     expect(isValidTrackingValue("1234567", identity)).toBe(false); // 7 chiffres
     expect(isValidTrackingValue("123456789012345678901", identity)).toBe(false); // 21 chiffres
+  });
+});
+
+describe("inferCarrier", () => {
+  it("retourne le transporteur explicite s'il existe, sans deviner", () => {
+    expect(inferCarrier("DPD", "6917777419334322")).toBe("DPD");
+    expect(inferCarrier("TNT", null)).toBe("TNT");
+  });
+
+  it("déduit TNT pour un n° de suivi numérique sans transporteur renseigné", () => {
+    expect(inferCarrier(null, "6917777327189028")).toBe("TNT");
+    expect(inferCarrier("", "117777527997554")).toBe("TNT");
+    expect(inferCarrier(null, "6917777432681151 6917777432681168")).toBe("TNT"); // multi-colis
+  });
+
+  it("ne devine rien pour 'Non sécurisé' (peut être TNT ou DPD)", () => {
+    expect(inferCarrier(null, "Non sécurisé")).toBeNull();
+  });
+
+  it("ne devine rien quand le n° de suivi est vide", () => {
+    expect(inferCarrier(null, null)).toBeNull();
+    expect(inferCarrier(null, "")).toBeNull();
+  });
+
+  it("ne devine rien pour 'À éditer'", () => {
+    expect(inferCarrier(null, "À éditer")).toBeNull();
   });
 });

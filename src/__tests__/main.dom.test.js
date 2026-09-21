@@ -1198,3 +1198,71 @@ describe("main.js — validation du n° de suivi (texte libre interdit)", () => 
     );
   });
 });
+
+describe("main.js — affichage des dates au format français", () => {
+  it("affiche les dates prévue/reçue au format JJ/MM/AAAA dans le tableau", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", expected_date: "2026-03-05", received_date: "2026-12-31" })],
+    });
+    expect(document.querySelector('[data-field="expected_date"]').textContent).toBe("05/03/2026");
+    expect(document.querySelector('[data-field="received_date"]').textContent).toBe("31/12/2026");
+  });
+
+  it("l'édition inline d'une date affichée en FR envoie toujours l'ISO au backend", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", expected_date: "2026-03-05", received_date: null, status: "shipped" })],
+    });
+    const cell = document.querySelector('[data-field="expected_date"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const input = cell.querySelector(".inline-edit-input");
+    expect(input.type).toBe("date");
+    expect(input.value).toBe("2026-03-05"); // toujours ISO, jamais le texte affiché
+
+    input.value = "2026-04-10";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "update_shipment",
+      expect.objectContaining({ shipment: expect.objectContaining({ expected_date: "2026-04-10" }) })
+    );
+  });
+});
+
+describe("main.js — déduction du transporteur (TNT par défaut)", () => {
+  it("affiche TNT déduit quand carrier est vide et le n° de suivi est numérique", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", carrier: null, tracking_number: "6917777327189028" })],
+    });
+    const cell = document.querySelector('[data-field="carrier"]');
+    expect(cell.textContent).toBe("TNT");
+    expect(cell.classList.contains("carrier-inferred")).toBe(true);
+  });
+
+  it("n'affiche rien de déduit pour 'Non sécurisé' (ambigu TNT/DPD)", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", carrier: null, tracking_number: "Non sécurisé" })],
+    });
+    const cell = document.querySelector('[data-field="carrier"]');
+    expect(cell.textContent).toBe("");
+  });
+
+  it("le transporteur explicite reste prioritaire sur la déduction", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", carrier: "DPD", tracking_number: "6917777327189028" })],
+    });
+    const cell = document.querySelector('[data-field="carrier"]');
+    expect(cell.textContent).toBe("DPD");
+    expect(cell.classList.contains("carrier-inferred")).toBe(false);
+  });
+
+  it("l'édition inline d'un transporteur déduit part vide, n'écrase pas silencieusement", async () => {
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", carrier: null, tracking_number: "6917777327189028" })],
+    });
+    const cell = document.querySelector('[data-field="carrier"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const select = cell.querySelector("select");
+    expect(select.value).toBe(""); // pas "TNT" — la déduction n'est qu'un affichage
+  });
+});

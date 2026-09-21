@@ -405,6 +405,10 @@ main {
   font-style: italic;
   cursor: text;
 }
+.carrier-inferred {
+  color: var(--text-muted);
+  font-style: italic;
+}
 .tracking-link-btn {
   border: none;
   background: none;

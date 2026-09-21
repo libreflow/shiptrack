@@ -59,6 +59,12 @@ applyStoredTheme(); // appliqué immédiatement, avant le premier rendu
 let allShipments = [];
 let quickStatus = "shipped";
 let selectedTech = localStorage.getItem(TECH_STORAGE_KEY) || "";
+// Décision produit explicite : contrairement aux autres filtres (recherche,
+// statut, retard — voir FILTERS_STORAGE_KEY), le filtre technicien n'est
+// JAMAIS persisté entre sessions. L'app repart toujours sur "Tous" au
+// démarrage, pour ne jamais masquer silencieusement des expéditions à la
+// réouverture. selectedTech (le nom présélectionné pour la SAISIE rapide,
+// différent du filtre d'affichage) reste, lui, mémorisé — voir TECH_STORAGE_KEY.
 let technicianFilterActive = false;
 let lastCreated = null;
 let searchDebounceTimer = null;
@@ -87,15 +93,18 @@ function todayIso() {
 /* ---------- Persistance des filtres ---------- */
 
 function saveFiltersToStorage() {
-  const state = {
-    search: el("search").value,
-    status: el("filter-status").value,
-    late: el("filter-late").checked,
-    groupByMonth: el("group-by-month").checked,
-    sortKey,
-    sortDir,
-  };
-  localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(state));
+  const state = getActiveFilterState();
+  localStorage.setItem(
+    FILTERS_STORAGE_KEY,
+    JSON.stringify({
+      search: el("search").value,
+      status: state.status,
+      late: state.lateOnly,
+      groupByMonth: state.groupByMonth,
+      sortKey,
+      sortDir,
+    })
+  );
 }
 
 function restoreFiltersFromStorage() {
@@ -221,17 +230,32 @@ function updateSortHeaders() {
   });
 }
 
+/**
+ * Source de vérité unique pour l'état des filtres, lu directement depuis le
+ * DOM + les variables module (jamais dupliqué/recalculé différemment par
+ * plusieurs fonctions). Tout code qui a besoin de savoir "quels filtres sont
+ * actifs" doit appeler cette fonction plutôt que relire le DOM lui-même —
+ * c'est ce qui a permis au bug "Tous et un technicien actifs en même temps"
+ * de passer inaperçu : chaque affichage avait sa propre logique.
+ */
+function getActiveFilterState() {
+  return {
+    search: el("search").value.trim(),
+    status: el("filter-status").value,
+    lateOnly: el("filter-late").checked,
+    technicianFilterActive,
+    technician: technicianFilterActive ? selectedTech : null,
+    groupByMonth: el("group-by-month").checked,
+  };
+}
+
 function hasActiveFilters() {
-  return (
-    Boolean(el("search").value.trim()) ||
-    Boolean(el("filter-status").value) ||
-    el("filter-late").checked ||
-    technicianFilterActive
-  );
+  const state = getActiveFilterState();
+  return Boolean(state.search) || Boolean(state.status) || state.lateOnly || state.technicianFilterActive;
 }
 
 function updateFilterControls() {
-  el("search-clear").classList.toggle("hidden", !el("search").value.trim());
+  el("search-clear").classList.toggle("hidden", !getActiveFilterState().search);
   el("btn-reset-filters").classList.toggle("hidden", !hasActiveFilters());
 }
 
@@ -241,17 +265,15 @@ let rowClickTimer = null;
 let activeInlineEditCleanup = null;
 
 function renderTable() {
-  const search = normalizeAccents(el("search").value.trim());
-  const statusFilter = el("filter-status").value;
-  const lateOnly = el("filter-late").checked;
+  const state = getActiveFilterState();
   updateFilterControls();
 
   const filtered = filterShipments(allShipments, {
-    statusFilter,
-    lateOnly,
-    normalizedSearch: search,
+    statusFilter: state.status,
+    lateOnly: state.lateOnly,
+    normalizedSearch: normalizeAccents(state.search),
     normalizeFn: normalizeAccents,
-    technicianFilter: technicianFilterActive ? selectedTech : null,
+    technicianFilter: state.technician,
   });
 
   const sorted = sortShipments(filtered, sortKey, sortDir);
@@ -1316,6 +1338,10 @@ window.addEventListener("DOMContentLoaded", () => {
   el("group-by-month").addEventListener("change", () => {
     renderTable();
   });
+  // Décision produit explicite : "Réinitialiser" remet à zéro les FILTRES qui
+  // réduisent ce qui est affiché (recherche, statut, retard, technicien), mais
+  // PAS le regroupement par mois — c'est une préférence de mise en forme de
+  // l'affichage, pas un filtre qui masque des expéditions.
   el("btn-reset-filters").addEventListener("click", () => {
     el("search").value = "";
     el("filter-status").value = "";

@@ -151,4 +151,45 @@ describe("matchesTechnician", () => {
     expect(matchesTechnician({ notes: null }, "Julie", identity)).toBe(false);
     expect(matchesTechnician({}, "Julie", identity)).toBe(false);
   });
+
+  // Régression : "Julie" matchait par simple sous-chaîne, donc filtrer sur
+  // "Julie" retournait aussi les lignes traitées par "Julien" (deux personnes
+  // différentes). Le nom doit désormais correspondre à un technicien ENTIER.
+  it("ne matche pas un préfixe partiel (Julie ne doit pas matcher Julien)", () => {
+    expect(matchesTechnician({ notes: "Traité par: Julien" }, "Julie", identity)).toBe(false);
+  });
+
+  // Régression : le format "Traité par : X" avec un espace avant les ":"
+  // n'était pas reconnu du tout (recherche par égalité de chaîne exacte
+  // "traité par: x"), alors que ça reste manifestement la même information.
+  it("reconnaît le format avec un espace avant les deux-points", () => {
+    expect(matchesTechnician({ notes: "Traité par : Julie" }, "Julie", identity)).toBe(true);
+  });
+
+  // Les données réelles contiennent des lignes traitées par plusieurs
+  // techniciens séparés par "/" (ex: "jp / julie", "Marie / Julie"). Chacun
+  // doit pouvoir retrouver la ligne, peu importe sa position.
+  it("matche chaque technicien d'une ligne traitée à plusieurs, séparés par '/'", () => {
+    expect(matchesTechnician({ notes: "Traité par: julie/amine" }, "julie", identity)).toBe(true);
+    expect(matchesTechnician({ notes: "Traité par: julie/amine" }, "amine", identity)).toBe(true);
+    expect(matchesTechnician({ notes: "Traité par: jp / julie" }, "julie", identity)).toBe(true);
+  });
+
+  it("s'arrête au séparateur '|' utilisé pour d'autres informations dans les notes", () => {
+    expect(matchesTechnician({ notes: "Traité par: Amine | vérifié par Julie" }, "Julie", identity)).toBe(false);
+    expect(matchesTechnician({ notes: "Traité par: Amine | vérifié par Julie" }, "Amine", identity)).toBe(true);
+  });
+
+  // Contrat entre écriture et lecture : la saisie rapide (main.js) et l'import
+  // Excel (import.rs) écrivent tous les deux exactement `Traité par: {nom}`
+  // dans les notes. Ce test verrouille explicitement ce format littéral —
+  // si un futur changement d'écriture s'en écarte sans mettre à jour
+  // matchesTechnician (ou l'inverse), ce test échoue immédiatement au lieu
+  // de laisser le filtre casser silencieusement.
+  it("reconnaît exactement le format écrit par la saisie rapide et l'import Excel (`Traité par: {nom}`)", () => {
+    const noteEcriteParSaisieRapideOuImport = (nom) => `Traité par: ${nom}`;
+    expect(
+      matchesTechnician({ notes: noteEcriteParSaisieRapideOuImport("julie") }, "julie", identity)
+    ).toBe(true);
+  });
 });

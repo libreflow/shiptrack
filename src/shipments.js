@@ -32,12 +32,24 @@ export function isLate(shipment, referenceDate = new Date()) {
  * Vérifie si les notes d'une expédition indiquent qu'elle a été traitée par
  * le technicien donné. Cherche le motif "Traité par: X" de façon insensible
  * à la casse/accents — pas de colonne dédiée, c'est du texte libre historique.
+ *
+ * Le nom doit correspondre à un technicien ENTIER de la liste, pas une simple
+ * sous-chaîne : sans ça, filtrer sur "Julie" matcherait aussi "Julien" (faux
+ * positif — deux personnes différentes). Les données réelles contiennent
+ * aussi plusieurs techniciens sur la même ligne séparés par "/" (ex:
+ * "Traité par: jp / julie", "Marie / Julie") : on découpe sur "/" et compare
+ * chaque nom individuellement, à n'importe quelle position. On coupe aussi
+ * sur "|", séparateur utilisé pour ajouter d'autres informations aux notes
+ * (import Excel historique : "Traité par: X | vérification...").
  */
 export function matchesTechnician(shipment, techName, normalizeFn) {
   if (!techName) return true;
-  const notes = shipment.notes ?? "";
-  const needle = normalizeFn(`traité par: ${techName}`.trim());
-  return normalizeFn(notes).includes(needle);
+  const notes = normalizeFn(shipment.notes ?? "");
+  const needle = normalizeFn(techName.trim());
+  const match = notes.match(/trait[eé]{1,2}\s*par\s*:\s*([^|]*)/i);
+  if (!match) return false;
+  const names = match[1].split("/").map((n) => n.trim());
+  return names.includes(needle);
 }
 
 /**

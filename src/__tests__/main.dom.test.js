@@ -987,3 +987,124 @@ describe("main.js — thème clair/sombre", () => {
     expect(localStorage.getItem("shiptrack.theme")).toBe(after);
   });
 });
+
+// Suite dédiée : invariants du système de filtres qui doivent rester vrais
+// quelle que soit la combinaison de filtres appliquée, pour empêcher la
+// classe de bugs découverte pendant l'audit (compteurs incohérents avec
+// l'affichage réel, deux boutons "actifs" en même temps, sélection fantôme).
+describe("main.js — cohérence du système de filtres (invariants)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function countVisibleRows() {
+    return document.querySelectorAll("#shipments-body tr[data-id]").length;
+  }
+
+  function rowCountFirstNumber() {
+    return parseInt(document.getElementById("row-count").textContent.split("/")[0].trim(), 10);
+  }
+
+  it("le premier nombre du compteur correspond toujours au nombre de lignes réellement affichées", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", status: "shipped", notes: "Traité par: julie" }),
+        makeShipment({ id: "id-2", status: "ordered", notes: "Traité par: Amine" }),
+        makeShipment({ id: "id-3", status: "shipped", notes: null }),
+      ],
+    });
+
+    // Aucun filtre.
+    expect(rowCountFirstNumber()).toBe(countVisibleRows());
+
+    // Filtre statut seul.
+    document.getElementById("filter-status").value = "shipped";
+    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(rowCountFirstNumber()).toBe(countVisibleRows());
+
+    // Filtre statut + technicien cumulés.
+    const julieBtn = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
+    julieBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(rowCountFirstNumber()).toBe(countVisibleRows());
+
+    // Retour à Tous : le filtre statut reste, le technicien part.
+    document.querySelector("[data-tech-all]").dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(rowCountFirstNumber()).toBe(countVisibleRows());
+
+    // Réinitialisation complète.
+    document.getElementById("btn-reset-filters").dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(rowCountFirstNumber()).toBe(countVisibleRows());
+    expect(rowCountFirstNumber()).toBe(3);
+  });
+
+  it("jamais plus d'un bouton technicien n'a le style de filtre actif à la fois, quelle que soit la séquence de clics", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", notes: "Traité par: julie" }),
+        makeShipment({ id: "id-2", notes: "Traité par: Amine" }),
+      ],
+    });
+
+    const clickTech = (name) =>
+      [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === name)?.dispatchEvent(
+        new window.Event("click", { bubbles: true })
+      );
+    const clickAll = () =>
+      document.querySelector("[data-tech-all]").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    const sequence = [() => clickTech("julie"), clickAll, () => clickTech("Amine"), () => clickTech("Amine"), clickAll];
+    for (const action of sequence) {
+      action();
+      const activeButtons = document.querySelectorAll(".tech-btn.active");
+      expect(activeButtons.length).toBe(1);
+    }
+  });
+
+  it("le compteur d'actions groupées ne compte jamais une ligne masquée par le filtre actuel", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", status: "shipped" }),
+        makeShipment({ id: "id-2", status: "ordered" }),
+        makeShipment({ id: "id-3", status: "shipped" }),
+      ],
+    });
+
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+
+    document.getElementById("filter-status").value = "shipped";
+    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    const bulkCountText = document.getElementById("bulk-count").textContent;
+    const selectedCount = parseInt(bulkCountText, 10);
+    expect(selectedCount).toBeLessThanOrEqual(countVisibleRows());
+  });
+
+  it("réinitialiser les filtres réaffiche systématiquement 100% des expéditions chargées", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", status: "shipped", notes: "Traité par: julie" }),
+        makeShipment({ id: "id-2", status: "ordered", notes: null }),
+        makeShipment({ id: "id-3", status: "received", notes: "Traité par: Amine" }),
+      ],
+    });
+
+    document.getElementById("search").value = "inexistant";
+    document.getElementById("search").dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById("filter-status").value = "shipped";
+    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+    document.getElementById("filter-late").checked = true;
+    document.getElementById("filter-late").dispatchEvent(new window.Event("change", { bubbles: true }));
+    const julieBtn = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
+    julieBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    document.getElementById("btn-reset-filters").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    expect(document.getElementById("row-count").textContent).toBe("3 / 3");
+    expect(countVisibleRows()).toBe(3);
+    expect(document.querySelector("[data-tech-all]").classList.contains("active")).toBe(true);
+  });
+});

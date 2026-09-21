@@ -793,12 +793,23 @@ async function cycleStatus(id) {
 
 function renderTechButtons() {
   const container = el("tech-buttons");
-  container.innerHTML = KNOWN_TECHS.map(
+  const allBtn = `<button type="button" class="tech-btn tech-btn-all ${!technicianFilterActive ? "active filter-active" : ""}" data-tech-all title="Afficher toutes les expéditions, peu importe qui les a traitées">Tous</button>`;
+  const techButtons = KNOWN_TECHS.map(
     (t) =>
       `<button type="button" class="tech-btn ${t === selectedTech ? "active" : ""} ${t === selectedTech && technicianFilterActive ? "filter-active" : ""}" data-tech="${escapeHtml(t)}" title="Clic : sélectionner pour la saisie et filtrer le tableau">${escapeHtml(t)}</button>`
   ).join("");
+  container.innerHTML = allBtn + techButtons;
 
-  container.querySelectorAll(".tech-btn").forEach((btn) => {
+  el("tech-buttons")
+    .querySelector("[data-tech-all]")
+    .addEventListener("click", () => {
+      technicianFilterActive = false;
+      renderTechButtons();
+      visibleCount = PAGE_SIZE;
+      renderTable();
+    });
+
+  container.querySelectorAll(".tech-btn[data-tech]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tech = btn.dataset.tech;
       if (tech === selectedTech && technicianFilterActive) {

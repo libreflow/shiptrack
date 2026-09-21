@@ -756,6 +756,40 @@ describe("main.js — filtre technicien (barre 'Traité par')", () => {
 
     expect(document.getElementById("row-count").textContent).toBe("2 / 2");
   });
+
+  it("le bouton 'Tous' est actif par défaut et affiche toutes les expéditions sans filtre technicien", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", notes: "Traité par: julie" }),
+        makeShipment({ id: "id-2", notes: "Traité par: Amine" }),
+        makeShipment({ id: "id-3", notes: null }),
+      ],
+    });
+    const allBtn = document.querySelector("[data-tech-all]");
+    expect(allBtn.classList.contains("active")).toBe(true);
+    expect(document.getElementById("row-count").textContent).toBe("3 / 3");
+  });
+
+  it("cliquer 'Tous' après avoir filtré sur un technicien réaffiche toutes les lignes", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", notes: "Traité par: julie" }),
+        makeShipment({ id: "id-2", notes: "Traité par: Amine" }),
+      ],
+    });
+    const julieBtn = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
+    julieBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(document.getElementById("row-count").textContent).toBe("1 / 2");
+
+    document.querySelector("[data-tech-all]").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    expect(document.getElementById("row-count").textContent).toBe("2 / 2");
+    expect(document.querySelector("[data-tech-all]").classList.contains("active")).toBe(true);
+    // Le technicien reste présélectionné pour la saisie rapide (classe "active"),
+    // mais son filtrage est bien désactivé (pas de "filter-active").
+    const julieBtnAfter = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
+    expect(julieBtnAfter.classList.contains("filter-active")).toBe(false);
+  });
 });
 
 describe("main.js — copie du numéro de suivi", () => {

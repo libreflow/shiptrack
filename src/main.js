@@ -231,7 +231,7 @@ function hasActiveFilters() {
 }
 
 function updateFilterControls() {
-  el("search-clear").classList.toggle("hidden", !el("search").value);
+  el("search-clear").classList.toggle("hidden", !el("search").value.trim());
   el("btn-reset-filters").classList.toggle("hidden", !hasActiveFilters());
 }
 
@@ -258,10 +258,14 @@ function renderTable() {
   updateSortHeaders();
   lastFilteredIds = sorted.map((s) => s.id);
 
-  // Purge les sélections dont la ligne a disparu (suppression, rechargement...).
-  const allIds = new Set(allShipments.map((s) => s.id));
+  // Purge les sélections dont la ligne a disparu (suppression) OU n'est plus
+  // visible sous le filtre actuel (statut/recherche/retard/technicien) : sans
+  // ça, la barre d'actions groupées pouvait afficher "N sélectionnées" en
+  // comptant des lignes masquées, invisibles à l'écran, et un "Supprimer"
+  // les aurait affectées sans que l'utilisateur ne les voie jamais.
+  const visibleIds = new Set(lastFilteredIds);
   for (const id of selectedIds) {
-    if (!allIds.has(id)) selectedIds.delete(id);
+    if (!visibleIds.has(id)) selectedIds.delete(id);
   }
 
   el("row-count").textContent = `${filtered.length} / ${allShipments.length}`;

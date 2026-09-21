@@ -121,6 +121,19 @@ describe("main.js — rendu du tableau (DOM réel)", () => {
     vi.restoreAllMocks();
   });
 
+  // Régression : le bouton "✕ effacer" se basait sur el("search").value brut,
+  // mais le filtrage réel applique .trim() (une recherche uniquement composée
+  // d'espaces est traitée comme vide). Le bouton apparaissait donc alors
+  // qu'aucun filtre n'était réellement actif.
+  it("le bouton effacer la recherche reste masqué pour une recherche composée uniquement d'espaces", async () => {
+    await loadApp({ shipments: [makeShipment()] });
+    document.getElementById("search").value = "   ";
+    document.getElementById("search").dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(document.getElementById("search-clear").classList.contains("hidden")).toBe(true);
+  });
+
   it("affiche une ligne par expédition chargée", async () => {
     await loadApp({ shipments: [makeShipment(), makeShipment({ id: "id-2", supplier: "Autre Agence" })] });
     const rows = document.querySelectorAll("#shipments-body tr[data-id]");
@@ -227,6 +240,30 @@ describe("main.js — sélection multiple et actions groupées", () => {
 
     expect(selectAll.checked).toBe(true);
     expect(selectAll.indeterminate).toBe(false);
+  });
+
+  // Régression : la sélection n'était purgée que des lignes SUPPRIMÉES de la
+  // base, pas de celles simplement masquées par un changement de filtre.
+  // La barre d'actions groupées pouvait donc afficher "N sélectionnées" en
+  // comptant des lignes invisibles à l'écran (filtrées hors vue) — un clic
+  // sur "Supprimer" les aurait affectées sans que l'utilisateur les voie.
+  it("changer le filtre statut retire de la sélection les lignes qui sortent de la vue", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", status: "shipped" }),
+        makeShipment({ id: "id-2", status: "ordered" }),
+      ],
+    });
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    expect(document.getElementById("bulk-count").textContent).toBe("2 sélectionnées");
+
+    document.getElementById("filter-status").value = "shipped"; // masque id-2
+    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(document.getElementById("bulk-count").textContent).toBe("1 sélectionnée");
   });
 
   it("bulk-delete demande confirmation puis supprime chaque ligne sélectionnée", async () => {

@@ -1108,3 +1108,93 @@ describe("main.js — cohérence du système de filtres (invariants)", () => {
     expect(document.querySelector("[data-tech-all]").classList.contains("active")).toBe(true);
   });
 });
+
+describe("main.js — validation du n° de suivi (texte libre interdit)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("affiche 'À éditer' pour une ligne sans n° de suivi", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: null })] });
+    const cell = document.querySelector('[data-field="tracking_number"]');
+    expect(cell.textContent).toBe("À éditer");
+  });
+
+  it("la saisie rapide refuse un texte libre en n° de suivi", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-tracking").value = "annuler";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("create_shipment", expect.anything());
+  });
+
+  it("la saisie rapide accepte 'Non sécurisé'", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-tracking").value = "Non sécurisé";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "create_shipment",
+      expect.objectContaining({ shipment: expect.objectContaining({ tracking_number: "Non sécurisé" }) })
+    );
+  });
+
+  it("la saisie rapide accepte un numéro conforme", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-tracking").value = "6917777419334322";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "create_shipment",
+      expect.objectContaining({ shipment: expect.objectContaining({ tracking_number: "6917777419334322" }) })
+    );
+  });
+
+  it("le dialog complet refuse un texte libre en n° de suivi", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1" })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("f-tracking").value = "à programmer";
+    document.getElementById("shipment-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(document.getElementById("shipment-dialog").open).toBe(true); // reste ouvert, refusé
+  });
+
+  it("l'édition inline refuse un texte libre en n° de suivi", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", tracking_number: "6917777419334322" })] });
+    const cell = document.querySelector('[data-field="tracking_number"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const input = cell.querySelector(".inline-edit-input");
+    input.value = "tnt exploit";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("update_shipment", expect.anything());
+  });
+
+  it("l'édition inline accepte de vider le champ (À éditer)", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", tracking_number: "6917777419334322" })] });
+    const cell = document.querySelector('[data-field="tracking_number"]');
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    const input = cell.querySelector(".inline-edit-input");
+    input.value = "";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "update_shipment",
+      expect.objectContaining({ shipment: expect.objectContaining({ tracking_number: null }) })
+    );
+  });
+});

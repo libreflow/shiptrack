@@ -115,7 +115,7 @@
               <td><input id="q-supplier" list="agences-list" placeholder="Agence" required /></td>
               <td><input id="q-material" list="materials-list" placeholder="Matériel" required /></td>
               <td>
-                <input id="q-tracking" placeholder="N° suivi" />
+                <input id="q-tracking" placeholder="N° suivi (chiffres) ou Non sécurisé" title='Chiffres uniquement (n° TNT/DPD), ou "Non sécurisé" pour les petits envois' />
                 <div id="q-duplicate-warning" class="duplicate-warning hidden">⚠ Déjà utilisé</div>
               </td>
               <td>
@@ -153,7 +153,7 @@
 
         <label>Agence *<input id="f-supplier" required /></label>
         <label>Matériel *<input id="f-material" required /></label>
-        <label>N° de suivi<input id="f-tracking" />
+        <label>N° de suivi<input id="f-tracking" title='Chiffres uniquement (n° TNT/DPD), ou "Non sécurisé" pour les petits envois' />
           <div id="f-duplicate-warning" class="duplicate-warning hidden">⚠ Déjà utilisé sur une autre expédition</div>
         </label>
         <button type="button" id="f-tracking-link" class="btn btn-sm btn-secondary hidden" style="justify-self: start;">📦 Suivre ce colis</button>

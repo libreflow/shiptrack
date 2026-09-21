@@ -5,7 +5,7 @@ const { writeText } = window.__TAURI__.clipboardManager;
 import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload } from "./normalize.js";
 import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth } from "./months.js";
 import { sortShipments, isLate, filterShipments } from "./shipments.js";
-import { buildTrackingUrl } from "./tracking.js";
+import { buildTrackingUrl, isValidTrackingValue } from "./tracking.js";
 
 const STATUS_LABELS = {
   ordered: "Commandé",
@@ -323,7 +323,7 @@ function shipmentRowHtml(s) {
     `<td data-field="${field}" title="${escapeHtml(value || "Double-clic pour modifier")}">${escapeHtml(value ?? "")}</td>`;
   const trackingCell = s.tracking_number
     ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><button type="button" class="tracking-copy-btn" data-copy-id="${s.id}" title="Copier le numéro de suivi">${escapeHtml(s.tracking_number)}</button><button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button></td>`
-    : cell("tracking_number", s.tracking_number);
+    : `<td data-field="tracking_number" class="tracking-empty" title="Double-clic pour renseigner le n° de suivi">À éditer</td>`;
   return `
     <tr class="${late ? "row-late" : ""}" data-id="${s.id}">
       <td><input type="checkbox" class="row-checkbox" data-select-id="${s.id}" ${checked} /></td>
@@ -568,7 +568,12 @@ function startInlineEdit(cell, id) {
     settled = true;
 
     let nextValue = input.value.trim() || null;
-    if (INLINE_TEXT_FIELDS.has(field) && nextValue) {
+    // Le n° de suivi ne doit jamais être "normalisé contre l'existant" comme
+    // les autres champs texte (agence/matériel/destinataire) : ça pourrait
+    // réutiliser silencieusement une ancienne valeur de texte libre en base
+    // (tnt, dpd...) comme "forme canonique". Sa validation est dédiée
+    // (chiffres uniquement / À éditer / Non sécurisé), voir plus bas.
+    if (INLINE_TEXT_FIELDS.has(field) && field !== "tracking_number" && nextValue) {
       const index = buildShipmentIndex(allShipments);
       nextValue = normalizeAgainstExisting(nextValue, index[field] ?? [], {
         titleCase: field === "supplier",
@@ -578,6 +583,13 @@ function startInlineEdit(cell, id) {
     if (!nextValue && INLINE_REQUIRED_FIELDS[field]) {
       settled = false; // laisse l'utilisateur corriger sans perdre sa saisie
       showToast(`Le champ "${INLINE_REQUIRED_FIELDS[field]}" est requis`, { error: true });
+      input.focus();
+      return;
+    }
+
+    if (field === "tracking_number" && !isValidTrackingValue(nextValue, normalizeAccents)) {
+      settled = false; // laisse l'utilisateur corriger sans perdre sa saisie
+      showToast('N° de suivi invalide : chiffres uniquement, "À éditer" ou "Non sécurisé"', { error: true });
       input.focus();
       return;
     }
@@ -923,6 +935,12 @@ async function submitQuickRow() {
     return;
   }
 
+  if (!isValidTrackingValue(el("q-tracking").value, normalizeAccents)) {
+    showToast('N° de suivi invalide : chiffres uniquement, "À éditer" ou "Non sécurisé"', { error: true });
+    el("q-tracking").focus();
+    return;
+  }
+
   const tech = currentTechnician();
   const payload = {
     ...values,
@@ -1158,6 +1176,12 @@ async function saveShipment(e) {
 
   if (errors.length > 0) {
     showToast(`Champ(s) requis manquant(s) : ${errors.join(", ")}`, { error: true });
+    return;
+  }
+
+  if (!isValidTrackingValue(el("f-tracking").value, normalizeAccents)) {
+    showToast('N° de suivi invalide : chiffres uniquement, "À éditer" ou "Non sécurisé"', { error: true });
+    el("f-tracking").focus();
     return;
   }
 

@@ -400,6 +400,11 @@ main {
   background: var(--menu-hover);
   text-decoration: underline;
 }
+.tracking-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  cursor: text;
+}
 .tracking-link-btn {
   border: none;
   background: none;

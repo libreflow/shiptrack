@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTrackingUrl } from "../tracking.js";
+import { buildTrackingUrl, isValidTrackingValue } from "../tracking.js";
 
 describe("buildTrackingUrl", () => {
   it("construit une URL 17TRACK valide pour un numéro simple", () => {
@@ -29,5 +29,53 @@ describe("buildTrackingUrl", () => {
   it("retourne null pour null/undefined", () => {
     expect(buildTrackingUrl(null)).toBeNull();
     expect(buildTrackingUrl(undefined)).toBeNull();
+  });
+});
+
+describe("isValidTrackingValue", () => {
+  const identity = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  it("accepte une valeur vide (affichée 'À éditer' dans le tableau)", () => {
+    expect(isValidTrackingValue("", identity)).toBe(true);
+    expect(isValidTrackingValue("   ", identity)).toBe(true);
+    expect(isValidTrackingValue(null, identity)).toBe(true);
+    expect(isValidTrackingValue(undefined, identity)).toBe(true);
+  });
+
+  it("accepte un numéro TNT/DPD réel (chiffres uniquement, 8 à 20 caractères)", () => {
+    expect(isValidTrackingValue("6917777419334322", identity)).toBe(true);
+    expect(isValidTrackingValue("117777527997554", identity)).toBe(true);
+  });
+
+  it("accepte 'Non sécurisé', insensible à la casse/accents", () => {
+    expect(isValidTrackingValue("Non sécurisé", identity)).toBe(true);
+    expect(isValidTrackingValue("non securise", identity)).toBe(true);
+    expect(isValidTrackingValue("NON SÉCURISÉ", identity)).toBe(true);
+  });
+
+  it("accepte 'À éditer', insensible à la casse/accents", () => {
+    expect(isValidTrackingValue("à éditer", identity)).toBe(true);
+    expect(isValidTrackingValue("A EDITER", identity)).toBe(true);
+  });
+
+  it("rejette le texte libre historique (tnt, dpd tapés comme texte)", () => {
+    expect(isValidTrackingValue("tnt", identity)).toBe(false);
+    expect(isValidTrackingValue("dpd", identity)).toBe(false);
+  });
+
+  it("rejette tout autre texte libre", () => {
+    expect(isValidTrackingValue("à programmer", identity)).toBe(false);
+    expect(isValidTrackingValue("RECU", identity)).toBe(false);
+    expect(isValidTrackingValue("63, boulevard Haussmann 75008 Paris", identity)).toBe(false);
+  });
+
+  it("accepte plusieurs numéros valides séparés par un espace ou un tiret (envoi multi-colis)", () => {
+    expect(isValidTrackingValue("6917777432681151 6917777432681168", identity)).toBe(true);
+    expect(isValidTrackingValue("1617777321266412 - 1617777421607702", identity)).toBe(true);
+  });
+
+  it("rejette un nombre trop court ou trop long", () => {
+    expect(isValidTrackingValue("1234567", identity)).toBe(false); // 7 chiffres
+    expect(isValidTrackingValue("123456789012345678901", identity)).toBe(false); // 21 chiffres
   });
 });

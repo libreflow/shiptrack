@@ -86,7 +86,6 @@ async function loadApp({ shipments = [], lateCount = 0, presetLocalStorage = {} 
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     }));
-  window.confirm = vi.fn(() => true);
   localStorage.clear();
   for (const [key, value] of Object.entries(presetLocalStorage)) {
     localStorage.setItem(key, value);
@@ -275,21 +274,25 @@ describe("main.js — sélection multiple et actions groupées", () => {
 
     document.getElementById("bulk-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("confirm-dialog").open).toBe(true);
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(window.confirm).toHaveBeenCalled();
     const deleteCalls = invokeMock.mock.calls.filter((c) => c[0] === "delete_shipment");
     expect(deleteCalls.length).toBe(2);
   });
 
   it("bulk-delete n'appelle rien si l'utilisateur annule la confirmation", async () => {
     await loadApp({ shipments: [makeShipment()] });
-    window.confirm = vi.fn(() => false);
     const cb = document.querySelector("[data-select-id]");
     cb.checked = true;
     cb.dispatchEvent(new window.Event("change", { bubbles: true }));
 
     document.getElementById("bulk-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-cancel").dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
 
     const deleteCalls = invokeMock.mock.calls.filter((c) => c[0] === "delete_shipment");
@@ -325,6 +328,8 @@ describe("main.js — sélection multiple et actions groupées", () => {
     });
     document.querySelector('[data-bulk-status="received"]').dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
     expect(document.getElementById("toast").classList.contains("error")).toBe(true);
@@ -340,6 +345,8 @@ describe("main.js — sélection multiple et actions groupées", () => {
       cb.dispatchEvent(new window.Event("change", { bubbles: true }));
     });
     document.querySelector('[data-bulk-status="received"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1358,5 +1365,146 @@ describe("main.js — ligne de saisie rapide : statut simplifié (Expédié par 
       "update_shipment",
       expect.objectContaining({ shipment: expect.objectContaining({ status: "shipped" }) })
     );
+  });
+});
+
+describe("main.js — dialog de confirmation (remplace window.confirm)", () => {
+  it("supprimer une expédition depuis le dialog complet demande confirmation via le nouveau dialog", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1" })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("btn-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById("confirm-dialog").open).toBe(true);
+
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith("delete_shipment", expect.objectContaining({ id: "id-1" }));
+  });
+
+  it("annuler la confirmation de suppression n'efface rien", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1" })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("btn-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-cancel").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("delete_shipment", expect.anything());
+    // Le dialog d'édition reste ouvert : l'annulation n'a fermé que la confirmation.
+    expect(document.getElementById("shipment-dialog").open).toBe(true);
+  });
+
+  it("fermer le dialog de confirmation via l'événement close (Échap) équivaut à annuler", async () => {
+    await loadApp({ shipments: [makeShipment(), makeShipment({ id: "id-2" })] });
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    document.getElementById("bulk-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Simule Échap : le <dialog> émet "close" nativement, pas un clic sur un bouton.
+    document.getElementById("confirm-dialog").dispatchEvent(new window.Event("close"));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("delete_shipment", expect.anything());
+  });
+});
+
+describe("main.js — feedback visuel sur champ en erreur (markFieldInvalid)", () => {
+  it("marque le champ Agence en erreur si vide à la soumission de la saisie rapide", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(document.getElementById("q-supplier").classList.contains("field-invalid")).toBe(true);
+  });
+
+  it("retire le marquage d'erreur dès que l'utilisateur retape dans le champ", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.getElementById("q-supplier").classList.contains("field-invalid")).toBe(true);
+
+    const supplierInput = document.getElementById("q-supplier");
+    supplierInput.value = "V";
+    supplierInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    expect(supplierInput.classList.contains("field-invalid")).toBe(false);
+  });
+});
+
+describe("main.js — cohérence visuelle 'Autre…' vs bouton technicien présélectionné", () => {
+  it("taper un nom libre dans 'Autre…' retire le style présélectionné du bouton technicien mémorisé", async () => {
+    await loadApp({ shipments: [], presetLocalStorage: { "shiptrack.lastTech": "julie" } });
+
+    const julieBtn = () => [...document.querySelectorAll("[data-tech]")].find((b) => b.dataset.tech === "julie");
+    expect(julieBtn().classList.contains("preselected")).toBe(true);
+
+    document.getElementById("tech-custom").value = "Quelqu'un d'autre";
+    document.getElementById("tech-custom").dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(julieBtn().classList.contains("preselected")).toBe(false);
+
+    document.getElementById("tech-custom").value = "";
+    document.getElementById("tech-custom").dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(julieBtn().classList.contains("preselected")).toBe(true);
+  });
+});
+
+describe("main.js — Ctrl+Entrée valide la saisie rapide en gardant les champs", () => {
+  it("garde Agence/Matériel/Transporteur/Destinataire, vide le n° de suivi, remet le focus dessus", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-tracking").value = "6917777419334322";
+    document.getElementById("q-carrier").value = "TNT";
+    document.getElementById("q-recipient").value = "Jean Dupont";
+
+    document
+      .getElementById("quick-add-row")
+      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith("create_shipment", expect.anything());
+    expect(document.getElementById("q-supplier").value).toBe("Voiron");
+    expect(document.getElementById("q-material").value).toBe("Écran");
+    expect(document.getElementById("q-carrier").value).toBe("TNT");
+    expect(document.getElementById("q-recipient").value).toBe("Jean Dupont");
+    expect(document.getElementById("q-tracking").value).toBe("");
+    expect(document.activeElement.id).toBe("q-tracking");
+  });
+
+  it("un Entrée simple (sans Ctrl) continue de tout vider comme avant", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+
+    document
+      .getElementById("quick-add-row")
+      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(document.getElementById("q-supplier").value).toBe("");
+    expect(document.getElementById("q-material").value).toBe("");
+    expect(document.activeElement.id).toBe("q-supplier");
+  });
+});
+
+describe("main.js — badge 'en retard' cliquable", () => {
+  it("cliquer le badge active le filtre 'en retard uniquement'", async () => {
+    await loadApp({ shipments: [], lateCount: 3 });
+    expect(document.getElementById("late-badge").classList.contains("hidden")).toBe(false);
+    expect(document.getElementById("filter-late").checked).toBe(false);
+
+    document.getElementById("late-badge").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    expect(document.getElementById("filter-late").checked).toBe(true);
   });
 });

@@ -13,7 +13,7 @@
         <h1>📦 ShipTrack</h1>
         <div class="topbar-actions">
           <button id="btn-theme-toggle" class="btn btn-secondary" title="Changer de thème">🌙</button>
-          <span id="late-badge" class="badge badge-late hidden"></span>
+          <button type="button" id="late-badge" class="badge badge-late hidden" title="Cliquer pour filtrer sur les expéditions en retard"></button>
           <div class="export-menu-wrap">
             <button id="btn-export" class="btn btn-secondary">Exporter Excel ▾</button>
             <div id="export-menu" class="export-menu hidden">
@@ -58,7 +58,7 @@
         <button type="button" id="btn-reset-filters" class="btn btn-sm btn-secondary hidden">Réinitialiser</button>
         <span id="row-count" class="row-count"></span>
       </section>
-      <div class="hint-bar">Ctrl+N : focus saisie · Entrée : valider · Échap : effacer · Ctrl+D : dupliquer dernière · clic sur un statut : changer rapidement · ↑↓ : naviguer les lignes · double-clic une cellule : modifier rapidement · clic sur un n° suivi : copier</div>
+      <div class="hint-bar">Ctrl+N : focus saisie · Entrée : valider · Ctrl+Entrée : valider et garder les champs · Échap : effacer · Ctrl+D : dupliquer dernière · clic sur un statut : changer rapidement · ↑↓ : naviguer les lignes · double-clic une cellule : modifier rapidement · clic sur un n° suivi : copier</div>
 
       <!-- Barre d'actions groupées, visible seulement si des lignes sont sélectionnées -->
       <section id="bulk-bar" class="bulk-bar hidden">
@@ -207,6 +207,18 @@
           <div class="spacer"></div>
           <button type="button" id="btn-import-cancel" class="btn btn-secondary">Annuler</button>
           <button type="submit" id="btn-import-confirm" class="btn btn-primary">Importer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog">
+      <form id="confirm-form" method="dialog">
+        <h2 id="confirm-dialog-title">Confirmer</h2>
+        <p id="confirm-dialog-message" class="confirm-message"></p>
+        <div class="dialog-actions">
+          <div class="spacer"></div>
+          <button type="button" id="confirm-dialog-cancel" class="btn btn-secondary">Annuler</button>
+          <button type="button" id="confirm-dialog-ok" class="btn btn-danger">Confirmer</button>
         </div>
       </form>
     </dialog>

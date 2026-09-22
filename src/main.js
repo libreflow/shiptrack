@@ -179,6 +179,58 @@ async function safeInvoke(cmd, args) {
   }
 }
 
+/**
+ * Marque visuellement un champ en erreur (bordure rouge) en plus du toast
+ * texte — sans ça, si l'utilisateur ne lit pas le toast avant qu'il
+ * disparaisse (5s), rien n'indique QUEL champ pose problème une fois le
+ * focus perdu. Retiré automatiquement dès que l'utilisateur retape dedans.
+ */
+function markFieldInvalid(inputEl) {
+  inputEl.classList.add("field-invalid");
+  const clear = () => {
+    inputEl.classList.remove("field-invalid");
+    inputEl.removeEventListener("input", clear);
+  };
+  inputEl.addEventListener("input", clear);
+}
+
+/**
+ * Remplace window.confirm() par un <dialog> thémé cohérent avec le reste de
+ * l'app (confirm() natif est non thémé, bloquant façon navigateur, et casse
+ * la cohérence visuelle dark/light). Retourne une Promise<boolean> comme
+ * confirm() le ferait de façon synchrone.
+ */
+function confirmDialog(message, { title = "Confirmer", confirmLabel = "Confirmer" } = {}) {
+  return new Promise((resolve) => {
+    const dialog = el("confirm-dialog");
+    el("confirm-dialog-title").textContent = title;
+    el("confirm-dialog-message").textContent = message;
+    el("confirm-dialog-ok").textContent = confirmLabel;
+
+    let settled = false;
+    const okBtn = el("confirm-dialog-ok");
+    const cancelBtn = el("confirm-dialog-cancel");
+
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dialog.removeEventListener("close", onClose);
+      dialog.close();
+      resolve(result);
+    };
+    const onOk = () => settle(true);
+    const onCancel = () => settle(false);
+    const onClose = () => settle(false); // Échap ou clic hors dialog = annulation
+
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+  });
+}
+
 /* ---------- Chargement des données ---------- */
 
 async function loadShipments() {
@@ -709,7 +761,11 @@ function clearSelection() {
 async function bulkSetStatus(status) {
   const ids = [...selectedIds];
   if (ids.length === 0) return;
-  if (!confirm(`Passer ${ids.length} expédition(s) au statut "${STATUS_LABELS[status]}" ?`)) return;
+  const ok = await confirmDialog(`Passer ${ids.length} expédition(s) au statut "${STATUS_LABELS[status]}" ?`, {
+    title: "Changer le statut",
+    confirmLabel: "Confirmer",
+  });
+  if (!ok) return;
 
   const receivedDate = status === "received" || status === "verified" ? todayIso() : null;
 
@@ -751,7 +807,11 @@ async function bulkSetStatus(status) {
 async function bulkDelete() {
   const ids = [...selectedIds];
   if (ids.length === 0) return;
-  if (!confirm(`Supprimer définitivement ${ids.length} expédition(s) ? Cette action est irréversible.`)) return;
+  const ok = await confirmDialog(
+    `Supprimer définitivement ${ids.length} expédition(s) ? Cette action est irréversible.`,
+    { title: "Supprimer", confirmLabel: "Supprimer" }
+  );
+  if (!ok) return;
 
   let failCount = 0;
   for (const id of ids) {
@@ -836,10 +896,16 @@ async function cycleStatus(id) {
 
 function renderTechButtons() {
   const container = el("tech-buttons");
+  // Si l'utilisateur tape un nom libre dans "Autre…", c'est CE texte qui sera
+  // utilisé pour la saisie (voir currentTechnician()), pas le technicien
+  // présélectionné par bouton — même si ce dernier reste mémorisé. Sans ça,
+  // un bouton pouvait apparaître "présélectionné" alors qu'il ne serait pas
+  // réellement utilisé à la prochaine saisie, ce qui trompait l'utilisateur.
+  const customOverride = Boolean(el("tech-custom").value.trim());
   const allBtn = `<button type="button" class="tech-btn tech-btn-all ${!technicianFilterActive ? "active filter-active" : ""}" data-tech-all title="Afficher toutes les expéditions, peu importe qui les a traitées">Tous</button>`;
   const techButtons = KNOWN_TECHS.map((t) => {
-    const isSelected = t === selectedTech;
-    const isFiltering = isSelected && technicianFilterActive;
+    const isSelected = t === selectedTech && !customOverride;
+    const isFiltering = t === selectedTech && technicianFilterActive;
     // "active" = c'est CE bouton qui filtre actuellement la vue (fond plein).
     // "preselected" = juste présélectionné pour la saisie rapide, sans filtrer
     // (style discret) : les deux ne doivent jamais se confondre visuellement,
@@ -933,7 +999,7 @@ function updateQuickDuplicateWarning() {
   warning.classList.toggle("hidden", !checkDuplicateTracking(value));
 }
 
-async function submitQuickRow() {
+async function submitQuickRow({ keepFieldsForNext = false } = {}) {
   const index = buildShipmentIndex(allShipments);
   const { values, errors } = normalizeShipmentPayload(
     {
@@ -946,6 +1012,8 @@ async function submitQuickRow() {
   );
 
   if (errors.length > 0) {
+    if (!values.supplier) markFieldInvalid(el("q-supplier"));
+    else markFieldInvalid(el("q-material"));
     if (!values.supplier) el("q-supplier").focus();
     else el("q-material").focus();
     showToast(`Champ(s) requis manquant(s) : ${errors.join(", ")}`, { error: true });
@@ -953,6 +1021,7 @@ async function submitQuickRow() {
   }
 
   if (!isValidTrackingValue(el("q-tracking").value, normalizeAccents)) {
+    markFieldInvalid(el("q-tracking"));
     showToast('N° de suivi invalide : chiffres uniquement, "À éditer" ou "Non sécurisé"', { error: true });
     el("q-tracking").focus();
     return;
@@ -992,10 +1061,21 @@ async function submitQuickRow() {
   }
 
   lastCreated = { ...payload, status: "shipped" };
-  resetQuickRow();
+  if (keepFieldsForNext) {
+    // Ctrl+Entrée : garde Agence/Matériel/Transporteur/Destinataire pour la
+    // prochaine ligne, ne vide que le n° de suivi et remet la date à
+    // aujourd'hui — utile pour saisir plusieurs colis identiques d'affilée
+    // sans retaper les mêmes informations à chaque fois.
+    el("q-tracking").value = "";
+    el("q-expected").value = todayIso();
+    el("q-duplicate-warning").classList.add("hidden");
+    el("q-supplier-warning").classList.add("hidden");
+  } else {
+    resetQuickRow();
+  }
   await loadShipments();
-  showToast("Expédition ajoutée");
-  el("q-supplier").focus();
+  showToast(keepFieldsForNext ? "Expédition ajoutée — champs conservés" : "Expédition ajoutée");
+  el(keepFieldsForNext ? "q-tracking" : "q-supplier").focus();
 }
 
 function duplicateLastRow() {
@@ -1016,7 +1096,10 @@ function setupQuickRowKeyboard() {
   const row = el("quick-add-row");
 
   row.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && e.ctrlKey) {
+      e.preventDefault();
+      submitQuickRow({ keepFieldsForNext: true });
+    } else if (e.key === "Enter") {
       e.preventDefault();
       submitQuickRow();
     } else if (e.key === "Escape") {
@@ -1191,11 +1274,14 @@ async function saveShipment(e) {
   );
 
   if (errors.length > 0) {
+    if (!values.supplier) markFieldInvalid(el("f-supplier"));
+    if (!values.material) markFieldInvalid(el("f-material"));
     showToast(`Champ(s) requis manquant(s) : ${errors.join(", ")}`, { error: true });
     return;
   }
 
   if (!isValidTrackingValue(el("f-tracking").value, normalizeAccents)) {
+    markFieldInvalid(el("f-tracking"));
     showToast('N° de suivi invalide : chiffres uniquement, "À éditer" ou "Non sécurisé"', { error: true });
     el("f-tracking").focus();
     return;
@@ -1225,7 +1311,8 @@ async function saveShipment(e) {
 async function deleteShipment() {
   const id = el("f-id").value;
   if (!id) return;
-  if (!confirm("Supprimer cette expédition ?")) return;
+  const ok = await confirmDialog("Supprimer cette expédition ?", { title: "Supprimer", confirmLabel: "Supprimer" });
+  if (!ok) return;
   try {
     await safeInvoke("delete_shipment", { id });
   } catch {
@@ -1341,6 +1428,7 @@ window.addEventListener("DOMContentLoaded", () => {
   el("q-supplier").addEventListener("input", () => {
     updateSupplierSimilarWarning(el("q-supplier"), el("q-supplier-warning"));
   });
+  el("tech-custom").addEventListener("input", renderTechButtons);
   el("f-tracking").addEventListener("input", () => {
     updateTrackingLinkButton();
     updateDialogDuplicateWarning();
@@ -1377,6 +1465,11 @@ window.addEventListener("DOMContentLoaded", () => {
     renderTable();
   });
   el("filter-late").addEventListener("change", () => {
+    visibleCount = PAGE_SIZE;
+    renderTable();
+  });
+  el("late-badge").addEventListener("click", () => {
+    el("filter-late").checked = true;
     visibleCount = PAGE_SIZE;
     renderTable();
   });

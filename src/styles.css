@@ -139,6 +139,12 @@ body {
   font-weight: 600;
 }
 .badge-late { background: #fee2e2; color: var(--danger-text); }
+button.badge-late {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.badge-late:hover { filter: brightness(0.95); box-shadow: 0 0 0 2px rgba(0,0,0,0.06) inset; }
 .hidden { display: none !important; }
 
 /* Menu export */
@@ -553,6 +559,10 @@ tr:hover .row-edit-hint { opacity: 1; }
   outline: 2px solid var(--brand);
   outline-offset: -1px;
 }
+.field-invalid {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 1px var(--danger) inset;
+}
 
 .duplicate-warning {
   font-size: 11px;
@@ -602,6 +612,11 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
   margin-top: 8px;
 }
 .spacer { flex: 1; }
+
+#confirm-dialog { width: 380px; }
+#confirm-form { padding: 20px; }
+#confirm-dialog-title { margin: 0 0 10px 0; font-size: 16px; }
+.confirm-message { margin: 0 0 16px 0; font-size: 14px; color: var(--text); line-height: 1.4; }
 
 .toast {
   position: fixed;

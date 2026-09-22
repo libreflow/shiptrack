@@ -13,7 +13,6 @@
         <h1>📦 ShipTrack</h1>
         <div class="topbar-actions">
           <button id="btn-theme-toggle" class="btn btn-secondary" title="Changer de thème">🌙</button>
-          <button type="button" id="late-badge" class="badge badge-late hidden" title="Cliquer pour filtrer sur les expéditions en retard"></button>
           <div class="export-menu-wrap">
             <button id="btn-export" class="btn btn-secondary">Exporter Excel ▾</button>
             <div id="export-menu" class="export-menu hidden">
@@ -40,18 +39,7 @@
           <input id="search" type="search" placeholder="Rechercher (agence, matériel, n° suivi)…" />
           <button type="button" id="search-clear" class="search-clear hidden" title="Effacer la recherche">✕</button>
         </div>
-        <select id="filter-status" class="filter-status-icon" title="Filtrer par statut">
-          <option value="" title="Tous les statuts">◻</option>
-          <option value="ordered" title="Commandé">⚪</option>
-          <option value="shipped" title="Expédié">🔵</option>
-          <option value="received" title="Reçu">🟢</option>
-          <option value="verified" title="Vérifié">🟣</option>
-        </select>
-        <label class="late-filter" title="En retard uniquement">
-          <input id="filter-late" type="checkbox" />
-          <span>En retard uniquement</span>
-        </label>
-        <label class="late-filter" title="Grouper par mois">
+        <label class="checkbox-filter" title="Grouper par mois">
           <input id="group-by-month" type="checkbox" />
           <span>Grouper par mois</span>
         </label>

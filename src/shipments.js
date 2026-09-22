@@ -1,5 +1,5 @@
 /**
- * Tri, filtrage et statut "en retard" — logique pure, sans DOM.
+ * Tri, filtrage et matching technicien — logique pure, sans DOM.
  * main.js branche ces fonctions aux valeurs lues dans le formulaire de filtres.
  */
 
@@ -14,18 +14,6 @@ export function compareValues(a, b) {
 export function sortShipments(list, sortKey, sortDir) {
   const sorted = [...list].sort((a, b) => compareValues(a[sortKey], b[sortKey]));
   return sortDir === "desc" ? sorted.reverse() : sorted;
-}
-
-/**
- * En retard : une date prévue dans le passé sur une expédition pas encore
- * reçue/vérifiée. `referenceDate` est injectable pour les tests (par défaut
- * "maintenant"), et on ne considère que la date du jour (pas l'heure).
- */
-export function isLate(shipment, referenceDate = new Date()) {
-  if (!shipment.expected_date || shipment.status === "received" || shipment.status === "verified") {
-    return false;
-  }
-  return new Date(shipment.expected_date) < new Date(referenceDate.toDateString());
 }
 
 /**
@@ -53,17 +41,16 @@ export function matchesTechnician(shipment, techName, normalizeFn) {
 }
 
 /**
- * Filtre une liste d'expéditions selon statut / "en retard uniquement" / recherche
- * texte. `normalizedSearch` doit déjà être passé par normalizeAccents et trim()
+ * Filtre une liste d'expéditions selon statut / recherche texte.
+ * `normalizedSearch` doit déjà être passé par normalizeAccents et trim()
  * par l'appelant (ce module ne connaît pas la logique d'accents).
  */
 export function filterShipments(
   shipments,
-  { statusFilter, lateOnly, normalizedSearch, normalizeFn, referenceDate, technicianFilter } = {}
+  { statusFilter, normalizedSearch, normalizeFn, technicianFilter } = {}
 ) {
   return shipments.filter((s) => {
     if (statusFilter && s.status !== statusFilter) return false;
-    if (lateOnly && !isLate(s, referenceDate)) return false;
     if (technicianFilter && !matchesTechnician(s, technicianFilter, normalizeFn)) return false;
     if (!normalizedSearch) return true;
     const haystack = normalizeFn(

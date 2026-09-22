@@ -6,7 +6,7 @@ import path from "node:path";
 // Vérifie que le CSS responsive est cohérent : chaque règle media query
 // référence des sélecteurs qui existent réellement dans index.html (sinon
 // la règle est morte / n'a aucun effet, comme le bug trouvé avec
-// `.late-filter span` avant que le <span> ne soit ajouté au markup).
+// `.checkbox-filter span` avant que le <span> ne soit ajouté au markup).
 
 const CSS = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles.css"),
@@ -32,9 +32,9 @@ describe("styles.css — responsive", () => {
     expect(CSS).toMatch(/main\s*\{[^}]*flex:\s*1/);
   });
 
-  it("le sélecteur ciblé par la media query 850px existe dans le markup (.late-filter span)", () => {
-    expect(CSS).toContain(".late-filter span");
-    expect(HTML).toMatch(/class="late-filter"[^>]*>\s*<input[^>]*\/>\s*<span>/);
+  it("le sélecteur ciblé par la media query 850px existe dans le markup (.checkbox-filter span)", () => {
+    expect(CSS).toContain(".checkbox-filter span");
+    expect(HTML).toMatch(/class="checkbox-filter"[^>]*>\s*<input[^>]*\/>\s*<span>/);
   });
 
   it("le tableau reste scrollable horizontalement sous la largeur de contenu (pas de coupe silencieuse)", () => {

@@ -57,7 +57,7 @@ function clearTrackedListeners() {
   trackedListeners = [];
 }
 
-async function loadApp({ shipments = [], lateCount = 0, presetLocalStorage = {} } = {}) {
+async function loadApp({ shipments = [], presetLocalStorage = {} } = {}) {
   clearTrackedListeners();
   // Repart d'un DOM propre à chaque test à partir du vrai fichier index.html.
   document.body.innerHTML = BODY_HTML;
@@ -66,7 +66,6 @@ async function loadApp({ shipments = [], lateCount = 0, presetLocalStorage = {} 
 
   invokeMock = vi.fn(async (cmd) => {
     if (cmd === "list_shipments") return shipments;
-    if (cmd === "count_late_shipments") return lateCount;
     if (cmd === "delete_shipment") return null;
     if (cmd === "update_shipment") return null;
     if (cmd === "create_shipment") return makeShipment({ id: "new-id" });
@@ -158,18 +157,6 @@ describe("main.js — rendu du tableau (DOM réel)", () => {
     expect(rows.length).toBe(1);
     expect(document.getElementById("row-count").textContent).toBe("1 / 2");
   });
-
-  it("affiche le badge retard quand count_late_shipments > 0", async () => {
-    await loadApp({ shipments: [makeShipment()], lateCount: 3 });
-    const badge = document.getElementById("late-badge");
-    expect(badge.classList.contains("hidden")).toBe(false);
-    expect(badge.textContent).toContain("3");
-  });
-
-  it("masque le badge retard quand count_late_shipments = 0", async () => {
-    await loadApp({ shipments: [makeShipment()], lateCount: 0 });
-    expect(document.getElementById("late-badge").classList.contains("hidden")).toBe(true);
-  });
 });
 
 describe("main.js — cycle de statut au clic", () => {
@@ -259,8 +246,7 @@ describe("main.js — sélection multiple et actions groupées", () => {
     });
     expect(document.getElementById("bulk-count").textContent).toBe("2 sélectionnées");
 
-    document.getElementById("filter-status").value = "shipped"; // masque id-2
-    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+    document.querySelector('[data-stat-status="shipped"]').dispatchEvent(new window.Event("click", { bubbles: true })); // masque id-2
 
     expect(document.getElementById("bulk-count").textContent).toBe("1 sélectionnée");
   });
@@ -313,7 +299,6 @@ describe("main.js — sélection multiple et actions groupées", () => {
           makeShipment({ id: "id-1", status: "shipped" }),
           makeShipment({ id: "id-2", status: "ordered" }),
         ];
-      if (cmd === "count_late_shipments") return 0;
       if (cmd === "update_shipment") {
         call++;
         if (call === 2) throw "simulated failure";
@@ -907,7 +892,7 @@ describe("main.js — lien de suivi 17TRACK", () => {
     expect(window.__TAURI__.opener.openUrl).toHaveBeenCalledWith(
       "https://t.17track.net/fr#nums=8117777435649222"
     );
-    const invokeCalls = invokeMock.mock.calls.filter((c) => c[0] !== "list_shipments" && c[0] !== "count_late_shipments");
+    const invokeCalls = invokeMock.mock.calls.filter((c) => c[0] !== "list_shipments");
     expect(invokeCalls.length).toBe(0);
   });
 
@@ -944,38 +929,23 @@ describe("main.js — regroupement par mois", () => {
     vi.restoreAllMocks();
   });
 
-  // Régression : items.filter(isLate) passait (élément, index, tableau) à
-  // isLate, dont le 2e paramètre est referenceDate = new Date() par défaut.
-  // L'index (0, 1, 2...) écrasait ce défaut sans jamais être `undefined`,
-  // donc `referenceDate.toDateString()` plantait (index n'a pas cette méthode)
-  // dès qu'on activait "Grouper par mois" — l'exception non catchée cassait
-  // le rendu. Corrigé en wrappant l'appel : items.filter((s) => isLate(s)).
-  it("activer 'Grouper par mois' avec des lignes en retard ne plante pas et affiche le compte", async () => {
+  // Régression historique (contexte retiré depuis : le concept "en retard" a
+  // été supprimé de l'app car devenu du bruit permanent en usage réel) :
+  // le regroupement par mois doit continuer à fonctionner sans planter.
+  it("activer 'Grouper par mois' regroupe correctement les lignes sans planter", async () => {
     await loadApp({
       shipments: [
         makeShipment({ id: "id-1", expected_date: "2020-01-15", status: "shipped" }),
         makeShipment({ id: "id-2", expected_date: "2020-01-20", status: "ordered" }),
       ],
-      lateCount: 2,
     });
 
     document.getElementById("group-by-month").checked = true;
     document.getElementById("group-by-month").dispatchEvent(new window.Event("change", { bubbles: true }));
 
-    const monthLateCount = document.querySelector(".month-late-count");
-    expect(monthLateCount).toBeTruthy();
-    expect(monthLateCount.textContent).toContain("2");
-  });
-
-  it("les lignes non en retard ne comptent pas dans le badge du mois", async () => {
-    await loadApp({
-      shipments: [makeShipment({ id: "id-1", expected_date: "2099-01-15", status: "shipped" })],
-    });
-
-    document.getElementById("group-by-month").checked = true;
-    document.getElementById("group-by-month").dispatchEvent(new window.Event("change", { bubbles: true }));
-
-    expect(document.querySelector(".month-late-count")).toBeFalsy();
+    const monthHeader = document.querySelector(".month-header-row");
+    expect(monthHeader).toBeTruthy();
+    expect(document.querySelector(".month-count").textContent).toBe("2");
   });
 });
 
@@ -1025,8 +995,7 @@ describe("main.js — cohérence du système de filtres (invariants)", () => {
     expect(rowCountFirstNumber()).toBe(countVisibleRows());
 
     // Filtre statut seul.
-    document.getElementById("filter-status").value = "shipped";
-    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+    document.querySelector('[data-stat-status="shipped"]').dispatchEvent(new window.Event("click", { bubbles: true }));
     expect(rowCountFirstNumber()).toBe(countVisibleRows());
 
     // Filtre statut + technicien cumulés.
@@ -1081,8 +1050,7 @@ describe("main.js — cohérence du système de filtres (invariants)", () => {
       cb.dispatchEvent(new window.Event("change", { bubbles: true }));
     });
 
-    document.getElementById("filter-status").value = "shipped";
-    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
+    document.querySelector('[data-stat-status="shipped"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 
     const bulkCountText = document.getElementById("bulk-count").textContent;
     const selectedCount = parseInt(bulkCountText, 10);
@@ -1101,10 +1069,7 @@ describe("main.js — cohérence du système de filtres (invariants)", () => {
     document.getElementById("search").value = "inexistant";
     document.getElementById("search").dispatchEvent(new window.Event("input", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 200));
-    document.getElementById("filter-status").value = "shipped";
-    document.getElementById("filter-status").dispatchEvent(new window.Event("change", { bubbles: true }));
-    document.getElementById("filter-late").checked = true;
-    document.getElementById("filter-late").dispatchEvent(new window.Event("change", { bubbles: true }));
+    document.querySelector('[data-stat-status="shipped"]').dispatchEvent(new window.Event("click", { bubbles: true }));
     const julieBtn = [...document.querySelectorAll(".tech-btn")].find((b) => b.dataset.tech === "julie");
     julieBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
 
@@ -1494,17 +1459,5 @@ describe("main.js — Ctrl+Entrée valide la saisie rapide en gardant les champs
     expect(document.getElementById("q-supplier").value).toBe("");
     expect(document.getElementById("q-material").value).toBe("");
     expect(document.activeElement.id).toBe("q-supplier");
-  });
-});
-
-describe("main.js — badge 'en retard' cliquable", () => {
-  it("cliquer le badge active le filtre 'en retard uniquement'", async () => {
-    await loadApp({ shipments: [], lateCount: 3 });
-    expect(document.getElementById("late-badge").classList.contains("hidden")).toBe(false);
-    expect(document.getElementById("filter-late").checked).toBe(false);
-
-    document.getElementById("late-badge").dispatchEvent(new window.Event("click", { bubbles: true }));
-
-    expect(document.getElementById("filter-late").checked).toBe(true);
   });
 });

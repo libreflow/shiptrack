@@ -4,7 +4,7 @@ const { openUrl } = window.__TAURI__.opener;
 const { writeText } = window.__TAURI__.clipboardManager;
 import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload, findSimilarValue } from "./normalize.js";
 import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth, formatDateFr } from "./months.js";
-import { sortShipments, isLate, filterShipments } from "./shipments.js";
+import { sortShipments, filterShipments } from "./shipments.js";
 import { buildTrackingUrl, isValidTrackingValue, inferCarrier } from "./tracking.js";
 
 const STATUS_LABELS = {
@@ -65,6 +65,11 @@ let selectedTech = localStorage.getItem(TECH_STORAGE_KEY) || "";
 // réouverture. selectedTech (le nom présélectionné pour la SAISIE rapide,
 // différent du filtre d'affichage) reste, lui, mémorisé — voir TECH_STORAGE_KEY.
 let technicianFilterActive = false;
+// Filtre statut : fusionné avec la barre de compteurs (stats-bar) — un seul
+// jeu de puces cliquables sert à la fois d'indicateur ET de filtre, plutôt
+// que deux contrôles séparés (ancien <select> d'icônes + stats-bar) qui
+// faisaient doublon visuellement pour le même concept.
+let statusFilter = "";
 let lastCreated = null;
 let searchDebounceTimer = null;
 let selectedIds = new Set();
@@ -98,7 +103,6 @@ function saveFiltersToStorage() {
     JSON.stringify({
       search: el("search").value,
       status: state.status,
-      late: state.lateOnly,
       groupByMonth: state.groupByMonth,
       sortKey,
       sortDir,
@@ -112,8 +116,7 @@ function restoreFiltersFromStorage() {
     if (!raw) return;
     const state = JSON.parse(raw);
     if (state.search) el("search").value = state.search;
-    if (state.status) el("filter-status").value = state.status;
-    if (state.late) el("filter-late").checked = true;
+    if (state.status) statusFilter = state.status;
     if (state.groupByMonth) el("group-by-month").checked = true;
     if (state.sortKey) sortKey = state.sortKey;
     if (state.sortDir) sortDir = state.sortDir;
@@ -242,24 +245,7 @@ async function loadShipments() {
     return;
   }
   renderTable();
-  updateLateBadge();
   refreshDatalists();
-}
-
-async function updateLateBadge() {
-  let count = 0;
-  try {
-    count = await invoke("count_late_shipments");
-  } catch (err) {
-    console.error(err);
-  }
-  const badge = el("late-badge");
-  if (count > 0) {
-    badge.textContent = `${count} en retard`;
-    badge.classList.remove("hidden");
-  } else {
-    badge.classList.add("hidden");
-  }
 }
 
 function refreshDatalists() {
@@ -292,8 +278,7 @@ function updateSortHeaders() {
 function getActiveFilterState() {
   return {
     search: el("search").value.trim(),
-    status: el("filter-status").value,
-    lateOnly: el("filter-late").checked,
+    status: statusFilter,
     technicianFilterActive,
     technician: technicianFilterActive ? selectedTech : null,
     groupByMonth: el("group-by-month").checked,
@@ -302,7 +287,7 @@ function getActiveFilterState() {
 
 function hasActiveFilters() {
   const state = getActiveFilterState();
-  return Boolean(state.search) || Boolean(state.status) || state.lateOnly || state.technicianFilterActive;
+  return Boolean(state.search) || Boolean(state.status) || state.technicianFilterActive;
 }
 
 function updateFilterControls() {
@@ -321,7 +306,6 @@ function renderTable() {
 
   const filtered = filterShipments(allShipments, {
     statusFilter: state.status,
-    lateOnly: state.lateOnly,
     normalizedSearch: normalizeAccents(state.search),
     normalizeFn: normalizeAccents,
     technicianFilter: state.technician,
@@ -332,7 +316,7 @@ function renderTable() {
   lastFilteredIds = sorted.map((s) => s.id);
 
   // Purge les sélections dont la ligne a disparu (suppression) OU n'est plus
-  // visible sous le filtre actuel (statut/recherche/retard/technicien) : sans
+  // visible sous le filtre actuel (statut/recherche/technicien) : sans
   // ça, la barre d'actions groupées pouvait afficher "N sélectionnées" en
   // comptant des lignes masquées, invisibles à l'écran, et un "Supprimer"
   // les aurait affectées sans que l'utilisateur ne les voie jamais.
@@ -368,7 +352,6 @@ function renderTable() {
 }
 
 function shipmentRowHtml(s) {
-  const late = isLate(s);
   const checked = selectedIds.has(s.id) ? "checked" : "";
   const cell = (field, value) =>
     `<td data-field="${field}" title="${escapeHtml(value || "Double-clic pour modifier")}">${escapeHtml(value ?? "")}</td>`;
@@ -386,7 +369,7 @@ function shipmentRowHtml(s) {
     ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><button type="button" class="tracking-copy-btn" data-copy-id="${s.id}" title="Copier le numéro de suivi">${escapeHtml(s.tracking_number)}</button><button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button></td>`
     : `<td data-field="tracking_number" class="tracking-empty" title="Double-clic pour renseigner le n° de suivi">À éditer</td>`;
   return `
-    <tr class="${late ? "row-late" : ""}" data-id="${s.id}">
+    <tr data-id="${s.id}">
       <td><input type="checkbox" class="row-checkbox" data-select-id="${s.id}" ${checked} /></td>
       <td><button type="button" class="status-pill status-pill-clickable status-${s.status}" data-cycle-id="${s.id}" title="Cliquer pour changer le statut">${STATUS_LABELS[s.status]}</button></td>
       ${cell("supplier", s.supplier)}
@@ -425,7 +408,6 @@ function renderGroupedBody(sorted) {
   const html = [];
   for (const { key, items } of groups) {
     const collapsed = isMonthCollapsed(key, curMonth, collapsedOverrides);
-    const lateCount = items.filter((s) => isLate(s)).length;
     html.push(`
       <tr class="month-header-row" data-month-key="${key}">
         <td colspan="10">
@@ -433,7 +415,6 @@ function renderGroupedBody(sorted) {
             <span class="month-chevron ${collapsed ? "collapsed" : ""}">▾</span>
             <span class="month-name">${monthLabel(key)}</span>
             <span class="month-count">${items.length}</span>
-            ${lateCount > 0 ? `<span class="month-late-count">${lateCount} en retard</span>` : ""}
           </button>
         </td>
       </tr>`);
@@ -833,26 +814,32 @@ async function bulkDelete() {
   await loadShipments();
 }
 
-/* ---------- Barre de compteurs par statut ---------- */
+/* ---------- Barre de compteurs par statut (sert aussi de filtre) ---------- */
 
 function renderStatsBar() {
   const container = el("stats-bar");
-  const activeStatus = el("filter-status").value;
 
-  container.innerHTML = STATUS_ORDER.map((status) => {
+  const allChip = `<button type="button" class="stat-chip stat-chip-all ${!statusFilter ? "active" : ""}" data-stat-status="" title="Afficher tous les statuts">
+      <span>Tous</span>
+      <span class="stat-count">${allShipments.length}</span>
+    </button>`;
+
+  const statusChips = STATUS_ORDER.map((status) => {
     const count = allShipments.filter((s) => s.status === status).length;
-    const active = status === activeStatus;
-    return `<button type="button" class="stat-chip ${active ? "active" : ""}" data-stat-status="${status}">
+    const active = status === statusFilter;
+    return `<button type="button" class="stat-chip ${active ? "active" : ""}" data-stat-status="${status}" title="Filtrer sur ${STATUS_LABELS[status]}">
       <span class="stat-dot stat-dot-${status}"></span>
       <span class="stat-count">${count}</span>
       <span>${STATUS_LABELS[status]}</span>
     </button>`;
   }).join("");
 
+  container.innerHTML = allChip + statusChips;
+
   container.querySelectorAll("[data-stat-status]").forEach((chip) => {
     chip.addEventListener("click", () => {
       const status = chip.dataset.statStatus;
-      el("filter-status").value = el("filter-status").value === status ? "" : status;
+      statusFilter = statusFilter === status ? "" : status;
       visibleCount = PAGE_SIZE;
       renderTable();
     });
@@ -1460,30 +1447,16 @@ window.addEventListener("DOMContentLoaded", () => {
     renderTable();
     el("search").focus();
   });
-  el("filter-status").addEventListener("change", () => {
-    visibleCount = PAGE_SIZE;
-    renderTable();
-  });
-  el("filter-late").addEventListener("change", () => {
-    visibleCount = PAGE_SIZE;
-    renderTable();
-  });
-  el("late-badge").addEventListener("click", () => {
-    el("filter-late").checked = true;
-    visibleCount = PAGE_SIZE;
-    renderTable();
-  });
   el("group-by-month").addEventListener("change", () => {
     renderTable();
   });
   // Décision produit explicite : "Réinitialiser" remet à zéro les FILTRES qui
-  // réduisent ce qui est affiché (recherche, statut, retard, technicien), mais
+  // réduisent ce qui est affiché (recherche, statut, technicien), mais
   // PAS le regroupement par mois — c'est une préférence de mise en forme de
   // l'affichage, pas un filtre qui masque des expéditions.
   el("btn-reset-filters").addEventListener("click", () => {
     el("search").value = "";
-    el("filter-status").value = "";
-    el("filter-late").checked = false;
+    statusFilter = "";
     technicianFilterActive = false;
     renderTechButtons();
     visibleCount = PAGE_SIZE;

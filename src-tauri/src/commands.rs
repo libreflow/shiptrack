@@ -157,25 +157,6 @@ fn get_shipment_impl(conn: &rusqlite::Connection, id: &str) -> Result<Option<Shi
         .map_err(|e| e.to_string())
 }
 
-/// Counts shipments whose expected_date is in the past and status is not yet received/verified.
-#[tauri::command]
-pub fn count_late_shipments(state: State<DbState>) -> Result<i64, String> {
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
-    count_late_shipments_impl(&conn)
-}
-
-fn count_late_shipments_impl(conn: &rusqlite::Connection) -> Result<i64, String> {
-    conn.query_row(
-        "SELECT COUNT(*) FROM shipments
-         WHERE status NOT IN ('received','verified')
-         AND expected_date IS NOT NULL
-         AND date(expected_date) < date('now')",
-        [],
-        |row| row.get(0),
-    )
-    .map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 pub fn export_shipments_xlsx(
     state: State<DbState>,
@@ -394,46 +375,6 @@ mod tests {
         let conn = test_db();
         let fetched = get_shipment_impl(&conn, "does-not-exist").unwrap();
         assert!(fetched.is_none());
-    }
-
-    #[test]
-    fn count_late_shipments_counts_only_overdue_unreceived() {
-        let conn = test_db();
-
-        // En retard : date passée, statut ordered.
-        let mut late = sample_new_shipment();
-        late.expected_date = Some("2020-01-01".to_string());
-        let late_shipment = create_shipment_impl(&conn, late).unwrap();
-
-        // Pas en retard : date future (rejetée par clean_date -> NULL de toute façon).
-        let mut future = sample_new_shipment();
-        future.expected_date = Some("2099-01-01".to_string());
-        create_shipment_impl(&conn, future).unwrap();
-
-        // Pas en retard : date passée mais déjà reçu.
-        let mut received = sample_new_shipment();
-        received.expected_date = Some("2020-01-01".to_string());
-        let received_shipment = create_shipment_impl(&conn, received).unwrap();
-        update_shipment_impl(
-            &conn,
-            UpdateShipment {
-                id: received_shipment.id.clone(),
-                supplier: received_shipment.supplier.clone(),
-                tracking_number: received_shipment.tracking_number.clone(),
-                carrier: received_shipment.carrier.clone(),
-                recipient: received_shipment.recipient.clone(),
-                material: received_shipment.material.clone(),
-                status: "received".to_string(),
-                expected_date: received_shipment.expected_date.clone(),
-                received_date: Some("2020-01-02".to_string()),
-                notes: None,
-            },
-        )
-        .unwrap();
-
-        let count = count_late_shipments_impl(&conn).unwrap();
-        assert_eq!(count, 1);
-        assert!(late_shipment.expected_date.is_some());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compareValues, sortShipments, isLate, filterShipments, matchesTechnician } from "../shipments.js";
+import { compareValues, sortShipments, filterShipments, matchesTechnician } from "../shipments.js";
 
 describe("compareValues", () => {
   it("compare deux chaînes avec localeCompare", () => {
@@ -45,29 +45,6 @@ describe("sortShipments", () => {
   });
 });
 
-describe("isLate", () => {
-  const reference = new Date("2026-09-16T10:00:00");
-
-  it("en retard : date prévue passée, statut non reçu/vérifié", () => {
-    expect(isLate({ expected_date: "2026-09-01", status: "shipped" }, reference)).toBe(true);
-    expect(isLate({ expected_date: "2026-09-01", status: "ordered" }, reference)).toBe(true);
-  });
-
-  it("pas en retard si déjà reçu ou vérifié", () => {
-    expect(isLate({ expected_date: "2026-09-01", status: "received" }, reference)).toBe(false);
-    expect(isLate({ expected_date: "2026-09-01", status: "verified" }, reference)).toBe(false);
-  });
-
-  it("pas en retard sans date prévue", () => {
-    expect(isLate({ expected_date: null, status: "shipped" }, reference)).toBe(false);
-  });
-
-  it("pas en retard si la date prévue est aujourd'hui ou dans le futur", () => {
-    expect(isLate({ expected_date: "2026-09-16", status: "shipped" }, reference)).toBe(false);
-    expect(isLate({ expected_date: "2026-09-20", status: "shipped" }, reference)).toBe(false);
-  });
-});
-
 describe("filterShipments", () => {
   const shipments = [
     { id: "1", supplier: "Voiron", material: "Écran", status: "shipped", expected_date: "2026-09-01", tracking_number: "ABC", recipient: null, carrier: null },
@@ -75,16 +52,10 @@ describe("filterShipments", () => {
     { id: "3", supplier: "Voiron", material: "Câble HDMI", status: "received", expected_date: "2026-01-01", tracking_number: null, recipient: null, carrier: null },
   ];
   const identity = (s) => s.toLowerCase();
-  const reference = new Date("2026-09-16T10:00:00");
 
   it("filtre par statut", () => {
     const result = filterShipments(shipments, { statusFilter: "shipped", normalizeFn: identity });
     expect(result.map((s) => s.id)).toEqual(["1"]);
-  });
-
-  it("filtre 'en retard uniquement'", () => {
-    const result = filterShipments(shipments, { lateOnly: true, normalizeFn: identity, referenceDate: reference });
-    expect(result.map((s) => s.id)).toEqual(["1"]); // #3 reçu donc pas en retard, #2 sans date
   });
 
   it("filtre par recherche texte (normalisée par le caller)", () => {

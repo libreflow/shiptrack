@@ -561,25 +561,6 @@ tr:hover .row-edit-hint { opacity: 1; }
   font-weight: 600;
 }
 
-.status-pills {
-  display: flex;
-  gap: 4px;
-}
-.status-pill-btn {
-  border: 1px solid var(--border);
-  background: var(--card);
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.status-pill-btn.active.status-ordered { background: #e5e7eb; color: #374151; border-color: #cbd2dc; }
-.status-pill-btn.active.status-shipped { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
-.status-pill-btn.active.status-received { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
-.status-pill-btn.active.status-verified { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
-
 dialog {
   border: none;
   border-radius: 10px;

@@ -1335,3 +1335,28 @@ describe("main.js — avertissement de faute de frappe probable sur l'agence", (
     expect(warning.classList.contains("hidden")).toBe(true);
   });
 });
+
+describe("main.js — ligne de saisie rapide : statut simplifié (Expédié par défaut)", () => {
+  it("n'affiche plus les 4 boutons de statut, seulement un badge statique 'Expédié'", async () => {
+    await loadApp({ shipments: [] });
+    expect(document.querySelectorAll(".status-pill-btn").length).toBe(0);
+    expect(document.getElementById("quick-status-pills")).toBeNull();
+
+    const badge = document.querySelector("#quick-add-row .status-pill");
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toBe("Expédié");
+  });
+
+  it("toute nouvelle expédition est créée avec le statut 'Expédié'", async () => {
+    await loadApp({ shipments: [] });
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "update_shipment",
+      expect.objectContaining({ shipment: expect.objectContaining({ status: "shipped" }) })
+    );
+  });
+});

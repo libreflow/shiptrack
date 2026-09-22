@@ -57,7 +57,6 @@ function updateThemeToggleIcon() {
 applyStoredTheme(); // appliqué immédiatement, avant le premier rendu
 
 let allShipments = [];
-let quickStatus = "shipped";
 let selectedTech = localStorage.getItem(TECH_STORAGE_KEY) || "";
 // Décision produit explicite : contrairement aux autres filtres (recherche,
 // statut, retard — voir FILTERS_STORAGE_KEY), le filtre technicien n'est
@@ -883,23 +882,6 @@ function currentTechnician() {
   return custom || selectedTech || null;
 }
 
-/* ---------- Pills de statut (ligne rapide) ---------- */
-
-function renderQuickStatusPills() {
-  const container = el("quick-status-pills");
-  container.innerHTML = STATUS_ORDER.map(
-    (s) =>
-      `<button type="button" class="status-pill-btn status-${s} ${s === quickStatus ? "active" : ""}" data-status="${s}">${STATUS_LABELS[s]}</button>`
-  ).join("");
-
-  container.querySelectorAll(".status-pill-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      quickStatus = btn.dataset.status;
-      renderQuickStatusPills();
-    });
-  });
-}
-
 /* ---------- Ligne de saisie rapide ---------- */
 
 const QUICK_FIELDS = ["q-supplier", "q-material", "q-tracking", "q-carrier", "q-recipient", "q-expected"];
@@ -988,28 +970,28 @@ async function submitQuickRow() {
   try {
     created = await safeInvoke("create_shipment", { shipment: payload });
 
-    if (quickStatus !== "ordered") {
-      await safeInvoke("update_shipment", {
-        shipment: {
-          id: created.id,
-          supplier: created.supplier,
-          tracking_number: created.tracking_number,
-          carrier: created.carrier,
-          recipient: created.recipient,
-          material: created.material,
-          status: quickStatus,
-          expected_date: created.expected_date,
-          received_date:
-            quickStatus === "received" || quickStatus === "verified" ? todayIso() : null,
-          notes: created.notes,
-        },
-      });
-    }
+    // Toute nouvelle expédition démarre avec le statut "Expédié" par défaut
+    // (le backend crée avec "Commandé" par défaut) — son état évoluera
+    // ensuite au fil des validations via le badge cliquable dans le tableau.
+    await safeInvoke("update_shipment", {
+      shipment: {
+        id: created.id,
+        supplier: created.supplier,
+        tracking_number: created.tracking_number,
+        carrier: created.carrier,
+        recipient: created.recipient,
+        material: created.material,
+        status: "shipped",
+        expected_date: created.expected_date,
+        received_date: null,
+        notes: created.notes,
+      },
+    });
   } catch {
     return; // erreur déjà affichée par safeInvoke
   }
 
-  lastCreated = { ...payload, status: quickStatus };
+  lastCreated = { ...payload, status: "shipped" };
   resetQuickRow();
   await loadShipments();
   showToast("Expédition ajoutée");
@@ -1027,8 +1009,6 @@ function duplicateLastRow() {
   el("q-carrier").value = lastCreated.carrier ?? "";
   el("q-recipient").value = lastCreated.recipient ?? "";
   el("q-expected").value = todayIso();
-  quickStatus = lastCreated.status ?? "shipped";
-  renderQuickStatusPills();
   el("q-supplier").focus();
 }
 
@@ -1332,7 +1312,6 @@ window.addEventListener("DOMContentLoaded", () => {
   el("btn-theme-toggle").addEventListener("click", toggleTheme);
 
   renderTechButtons();
-  renderQuickStatusPills();
   setupQuickRowKeyboard();
   setupRowKeyboardNavigation();
   applyColumnWidths();

@@ -112,7 +112,10 @@
               <td>
                 <div id="quick-status-pills" class="status-pills"></div>
               </td>
-              <td><input id="q-supplier" list="agences-list" placeholder="Agence" required /></td>
+              <td>
+                <input id="q-supplier" list="agences-list" placeholder="Agence" required />
+                <div id="q-supplier-warning" class="duplicate-warning hidden"></div>
+              </td>
               <td><input id="q-material" list="materials-list" placeholder="Matériel" required /></td>
               <td>
                 <input id="q-tracking" placeholder="N° suivi (chiffres) ou Non sécurisé" title='Chiffres uniquement (n° TNT/DPD), ou "Non sécurisé" pour les petits envois' />
@@ -151,7 +154,9 @@
         <h2 id="dialog-title">Modifier l'expédition</h2>
         <input type="hidden" id="f-id" />
 
-        <label>Agence *<input id="f-supplier" required /></label>
+        <label>Agence *<input id="f-supplier" list="agences-list" required />
+          <div id="f-supplier-warning" class="duplicate-warning hidden"></div>
+        </label>
         <label>Matériel *<input id="f-material" required /></label>
         <label>N° de suivi<input id="f-tracking" title='Chiffres uniquement (n° TNT/DPD), ou "Non sécurisé" pour les petits envois' />
           <div id="f-duplicate-warning" class="duplicate-warning hidden">⚠ Déjà utilisé sur une autre expédition</div>

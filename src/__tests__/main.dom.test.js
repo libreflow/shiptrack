@@ -1266,3 +1266,72 @@ describe("main.js — déduction du transporteur (TNT par défaut)", () => {
     expect(select.value).toBe(""); // pas "TNT" — la déduction n'est qu'un affichage
   });
 });
+
+describe("main.js — avertissement de faute de frappe probable sur l'agence", () => {
+  it("la saisie rapide avertit quand l'agence ressemble à une agence existante", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", supplier: "Bollene" })] });
+    const input = document.getElementById("q-supplier");
+    const warning = document.getElementById("q-supplier-warning");
+
+    input.value = "Bolllene";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(warning.classList.contains("hidden")).toBe(false);
+    expect(warning.textContent).toContain("Bollene");
+  });
+
+  it("la saisie rapide n'avertit pas pour une valeur identique ou une agence légitimement nouvelle", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", supplier: "Bollene" })] });
+    const input = document.getElementById("q-supplier");
+    const warning = document.getElementById("q-supplier-warning");
+
+    input.value = "Bollene";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(warning.classList.contains("hidden")).toBe(true);
+
+    input.value = "Toute Nouvelle Agence";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(warning.classList.contains("hidden")).toBe(true);
+  });
+
+  it("le dialog complet avertit aussi sur une faute de frappe probable", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", supplier: "Bollene" }),
+        makeShipment({ id: "id-2", supplier: "Voiron" }),
+      ],
+    });
+    document.querySelector('tr[data-id="id-2"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    const input = document.getElementById("f-supplier");
+    const warning = document.getElementById("f-supplier-warning");
+    input.value = "Bolllene";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(warning.classList.contains("hidden")).toBe(false);
+    expect(warning.textContent).toContain("Bollene");
+  });
+
+  it("ne se compare jamais à sa propre valeur en édition (pas de faux avertissement sur soi-même)", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", supplier: "Bollene" })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    const warning = document.getElementById("f-supplier-warning");
+    expect(warning.classList.contains("hidden")).toBe(true);
+  });
+
+  it("l'avertissement se réinitialise après validation de la saisie rapide", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", supplier: "Bollene" })] });
+    const input = document.getElementById("q-supplier");
+    const warning = document.getElementById("q-supplier-warning");
+    input.value = "Bolllene";
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(warning.classList.contains("hidden")).toBe(false);
+
+    document.getElementById("q-material").value = "Écran";
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(warning.classList.contains("hidden")).toBe(true);
+  });
+});

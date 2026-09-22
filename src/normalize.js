@@ -55,6 +55,65 @@ export function normalizeAgainstExisting(value, existingValues, { titleCase = fa
 }
 
 /**
+ * Distance de Levenshtein classique (nombre minimal d'insertions/suppressions/
+ * substitutions pour passer de a à b).
+ */
+export function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const curr = [i];
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[n];
+}
+
+/**
+ * Détecte les erreurs de frappe humaines sur un champ texte libre : cherche,
+ * parmi les valeurs déjà en base, celles très proches (mais PAS identiques —
+ * l'identique exact est déjà géré par normalizeAgainstExisting) de la saisie.
+ * Seuil calibré et vérifié sur les 563 agences réelles de la base (avant
+ * intégration) : distance de Levenshtein <= 3, ratio <= 20% de la longueur,
+ * et longueur minimale de 6 caractères (sous ce seuil, deux noms courts très
+ * différents peuvent n'être qu'à 1 caractère d'écart — ex: "Poissy"/"Roissy",
+ * deux vraies villes distinctes — le risque de faux positif devient trop
+ * élevé pour rester utile).
+ * Ne bloque jamais : sert uniquement à afficher un avertissement dismissable
+ * ("Vouliez-vous dire … ?"), l'utilisateur garde toujours la main.
+ */
+export function findSimilarValue(value, existingValues) {
+  const cleaned = normalizeWhitespace(value ?? "");
+  if (!cleaned) return null;
+  const needle = normalizeAccents(cleaned);
+  if (needle.length < 6) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const existing of existingValues) {
+    const candidate = normalizeAccents(existing);
+    if (candidate === needle) continue; // identique : pas une "erreur", géré ailleurs
+    if (Math.abs(candidate.length - needle.length) > 3) continue;
+    const distance = levenshteinDistance(needle, candidate);
+    if (distance === 0 || distance > 3) continue;
+    const ratio = distance / Math.max(needle.length, candidate.length);
+    if (ratio > 0.2) continue;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = existing;
+    }
+  }
+  return best;
+}
+
+/**
  * Schéma déclaratif des champs texte libre d'une expédition.
  * Ajouter/modifier un champ ici suffit à propager le comportement partout
  * (saisie rapide, dialog d'édition, tout futur point d'entrée).

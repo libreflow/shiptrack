@@ -2,7 +2,7 @@ const { invoke } = window.__TAURI__.core;
 const { save, open } = window.__TAURI__.dialog;
 const { openUrl } = window.__TAURI__.opener;
 const { writeText } = window.__TAURI__.clipboardManager;
-import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload } from "./normalize.js";
+import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload, findSimilarValue } from "./normalize.js";
 import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth, formatDateFr } from "./months.js";
 import { sortShipments, isLate, filterShipments } from "./shipments.js";
 import { buildTrackingUrl, isValidTrackingValue, inferCarrier } from "./tracking.js";
@@ -908,12 +908,37 @@ function resetQuickRow() {
   QUICK_FIELDS.forEach((id) => (el(id).value = ""));
   el("q-expected").value = todayIso();
   el("q-duplicate-warning").classList.add("hidden");
+  el("q-supplier-warning").classList.add("hidden");
 }
 
 function checkDuplicateTracking(value, { excludeId = null } = {}) {
   return allShipments.some(
     (s) => s.id !== excludeId && s.tracking_number && s.tracking_number.trim() === value
   );
+}
+
+/**
+ * Rattrape les fautes de frappe humaines sur le champ Agence : si la saisie
+ * ressemble fortement (mais n'est pas identique) à une agence déjà connue,
+ * affiche un avertissement dismissable "Vouliez-vous dire … ?" — n'empêche
+ * jamais de continuer, l'utilisateur garde la main (voir findSimilarValue).
+ */
+function updateSupplierSimilarWarning(inputEl, warningEl, { excludeId = null } = {}) {
+  const value = inputEl.value.trim();
+  if (!value) {
+    warningEl.classList.add("hidden");
+    return;
+  }
+  const existing = [
+    ...new Set(allShipments.filter((s) => s.id !== excludeId).map((s) => s.supplier).filter(Boolean)),
+  ];
+  const similar = findSimilarValue(value, existing);
+  if (similar) {
+    warningEl.textContent = `⚠ Vouliez-vous dire "${similar}" ?`;
+    warningEl.classList.remove("hidden");
+  } else {
+    warningEl.classList.add("hidden");
+  }
 }
 
 function updateQuickDuplicateWarning() {
@@ -1165,6 +1190,7 @@ function openEditDialog(id) {
   updateTrackingLinkButton();
   updateReceivedRowVisibility();
   updateDialogDuplicateWarning();
+  updateSupplierSimilarWarning(el("f-supplier"), el("f-supplier-warning"), { excludeId: s.id });
   el("shipment-dialog").showModal();
 }
 
@@ -1333,9 +1359,15 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   el("q-tracking").addEventListener("input", updateQuickDuplicateWarning);
+  el("q-supplier").addEventListener("input", () => {
+    updateSupplierSimilarWarning(el("q-supplier"), el("q-supplier-warning"));
+  });
   el("f-tracking").addEventListener("input", () => {
     updateTrackingLinkButton();
     updateDialogDuplicateWarning();
+  });
+  el("f-supplier").addEventListener("input", () => {
+    updateSupplierSimilarWarning(el("f-supplier"), el("f-supplier-warning"), { excludeId: el("f-id").value });
   });
   el("f-status").addEventListener("change", updateReceivedRowVisibility);
   el("f-tracking-link").addEventListener("click", () => {

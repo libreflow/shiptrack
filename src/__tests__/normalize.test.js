@@ -6,6 +6,8 @@ import {
   normalizeAgainstExisting,
   buildShipmentIndex,
   normalizeShipmentPayload,
+  levenshteinDistance,
+  findSimilarValue,
 } from "../normalize.js";
 
 describe("normalizeAccents", () => {
@@ -116,5 +118,55 @@ describe("normalizeShipmentPayload", () => {
     expect(values.carrier).toBeNull();
     expect(values.recipient).toBeNull();
     expect(errors).toEqual([]);
+  });
+});
+
+describe("levenshteinDistance", () => {
+  it("retourne 0 pour des chaînes identiques", () => {
+    expect(levenshteinDistance("Bollene", "Bollene")).toBe(0);
+  });
+
+  it("compte le nombre minimal d'opérations", () => {
+    expect(levenshteinDistance("Bollene", "Bolllene")).toBe(1); // insertion
+    expect(levenshteinDistance("Dukerque", "Dunkerque")).toBe(1); // substitution
+    expect(levenshteinDistance("chat", "chien")).toBeGreaterThan(1);
+  });
+
+  it("gère les chaînes vides", () => {
+    expect(levenshteinDistance("", "abc")).toBe(3);
+    expect(levenshteinDistance("abc", "")).toBe(3);
+  });
+});
+
+describe("findSimilarValue", () => {
+  it("détecte une faute de frappe probable (distance <= 3, ratio <= 20%)", () => {
+    expect(findSimilarValue("Bolllene", ["Bollene", "Voiron"])).toBe("Bollene");
+    expect(findSimilarValue("Dukerque", ["Dunkerque", "Paris"])).toBe("Dunkerque");
+    expect(findSimilarValue("Asniere sur Seine", ["Asnieres sur Seine"])).toBe("Asnieres sur Seine");
+  });
+
+  it("ne signale pas une valeur déjà identique (insensible casse/accents)", () => {
+    expect(findSimilarValue("bollene", ["Bollene"])).toBeNull();
+    expect(findSimilarValue("BOLLENE", ["Bollene"])).toBeNull();
+  });
+
+  it("ne signale rien pour une valeur trop courte (< 6 caractères, trop de faux positifs)", () => {
+    expect(findSimilarValue("Agen", ["Agen2", "Anger"])).toBeNull();
+  });
+
+  it("ne signale rien quand aucune valeur existante n'est assez proche", () => {
+    expect(findSimilarValue("Toute Nouvelle Agence", ["Voiron", "Bollene"])).toBeNull();
+  });
+
+  it("retourne null pour une valeur vide", () => {
+    expect(findSimilarValue("", ["Voiron"])).toBeNull();
+    expect(findSimilarValue(null, ["Voiron"])).toBeNull();
+  });
+
+  it("accepte un compromis avec de rares faux positifs sur des mots courts proches (seuil calibré sur les 563 agences réelles)", () => {
+    // "Poissy"/"Roissy" sont deux vraies villes différentes mais à distance 1 —
+    // le seuil reste volontairement permissif car ce n'est qu'un avertissement
+    // dismissable, jamais un blocage (voir doc de findSimilarValue).
+    expect(findSimilarValue("Poissy", ["Roissy"])).toBe("Roissy");
   });
 });

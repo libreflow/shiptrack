@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod import;
 mod models;
+mod pdf_import;
 
 use db::DbState;
 use std::sync::Mutex;
@@ -37,6 +38,7 @@ pub fn run() {
             commands::export_shipments_xlsx,
             import::list_excel_sheets,
             import::import_excel_sheet,
+            pdf_import::parse_shipping_note_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

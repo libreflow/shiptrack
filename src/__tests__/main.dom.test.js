@@ -1675,3 +1675,119 @@ describe("main.js — indicateur de chargement sur les opérations longues", () 
     expect(confirmBtn.textContent).toBe(originalLabel);
   });
 });
+
+describe("main.js — import PDF (bon de transport)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Régression : le bouton doit déclencher un sélecteur de fichier PDF, puis
+  // appeler parse_shipping_note_pdf et pré-remplir la ligne de saisie rapide
+  // avec ce qui a été extrait.
+  it("pré-remplit Agence/N° suivi/Transporteur/Destinataire/Date depuis le PDF", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon.pdf") });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_note_pdf")
+        return {
+          carrier: "TNT",
+          tracking_number: "2417777334853446",
+          agency: "Agence Adéquat Perigueux",
+          recipient: "MAZEAU  Renaud",
+          expected_date: "2026-09-08",
+          warnings: [],
+        };
+      return null;
+    });
+
+    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).toHaveBeenCalledWith("parse_shipping_note_pdf", { filePath: "C:/bon.pdf" });
+    expect(document.getElementById("q-supplier").value).toBe("Agence Adéquat Perigueux");
+    expect(document.getElementById("q-tracking").value).toBe("2417777334853446");
+    expect(document.getElementById("q-carrier").value).toBe("TNT");
+    expect(document.getElementById("q-recipient").value).toBe("MAZEAU  Renaud");
+    expect(document.getElementById("q-expected").value).toBe("2026-09-08");
+    // Le Matériel n'est jamais fourni par un bon de transport (non imprimé
+    // par le transporteur) : doit rester vide pour saisie manuelle.
+    expect(document.getElementById("q-material").value).toBe("");
+  });
+
+  it("n'écrase pas un champ déjà rempli manuellement avant l'import PDF", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon.pdf") });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_note_pdf")
+        return {
+          carrier: "TNT",
+          tracking_number: "2417777334853446",
+          agency: "Agence Adéquat Perigueux",
+          recipient: null,
+          expected_date: "2026-09-08",
+          warnings: [],
+        };
+      return null;
+    });
+
+    document.getElementById("q-supplier").value = "Agence saisie à la main";
+    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("q-supplier").value).toBe("Agence saisie à la main");
+    expect(document.getElementById("q-tracking").value).toBe("2417777334853446");
+  });
+
+  it("affiche les avertissements du backend sans planter quand un champ est introuvable", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon-dpd.pdf") });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_note_pdf")
+        return {
+          carrier: null,
+          tracking_number: null,
+          agency: null,
+          recipient: null,
+          expected_date: null,
+          warnings: ["Format non reconnu (seuls les bons TNT sont supportés actuellement) — remplissez manuellement."],
+        };
+      return null;
+    });
+
+    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("q-supplier").value).toBe("");
+    expect(document.querySelector(".toast")?.textContent || document.body.textContent).toContain("Format non reconnu");
+  });
+
+  it("n'appelle pas le backend si l'utilisateur annule la sélection de fichier", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => null) });
+    invokeMock.mockImplementation(async (cmd) => (cmd === "list_shipments" ? [] : null));
+
+    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("parse_shipping_note_pdf", expect.anything());
+  });
+
+  // Régression : q-expected est déjà pré-rempli avec la date du jour par
+  // resetQuickRow() (valeur par défaut, pas un choix utilisateur) — un
+  // fillIfEmpty naïf ne l'écraserait donc jamais, rendant l'auto-remplissage
+  // de la date silencieusement inopérant en pratique.
+  it("écrase la date par défaut (aujourd'hui) avec celle extraite du PDF", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon.pdf") });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_note_pdf")
+        return { carrier: "TNT", tracking_number: null, agency: null, recipient: null, expected_date: "2026-09-08", warnings: [] };
+      return null;
+    });
+
+    expect(document.getElementById("q-expected").value).not.toBe("");
+    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("q-expected").value).toBe("2026-09-08");
+  });
+});

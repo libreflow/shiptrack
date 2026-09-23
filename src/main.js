@@ -1197,6 +1197,7 @@ function setupQuickRowKeyboard() {
   });
 
   el("q-submit").addEventListener("click", submitQuickRow);
+  el("q-pdf-import").addEventListener("click", startPdfImport);
 }
 
 /* ---------- Colonnes redimensionnables ---------- */
@@ -1414,6 +1415,53 @@ async function exportXlsx(shipmentIds = null, triggerButton = null) {
     return;
   }
   showToast("Export terminé : " + path);
+}
+
+/* ---------- Import PDF (bon de transport) ---------- */
+
+/**
+ * Pré-remplit la ligne de saisie rapide à partir d'un bon de transport PDF
+ * (TNT uniquement pour l'instant — voir pdf_import.rs). N'écrase jamais un
+ * champ déjà rempli manuellement par l'utilisateur : on part du principe
+ * qu'une valeur déjà tapée est intentionnelle et plus fiable qu'une
+ * extraction automatique. Le Matériel n'est jamais fourni par le PDF (un
+ * bordereau transporteur n'imprime pas le contenu du colis) — reste donc
+ * toujours à la charge de l'utilisateur.
+ */
+async function startPdfImport() {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (!path) return;
+
+  let parsed;
+  try {
+    parsed = await withLoading(el("q-pdf-import"), "Lecture…", () => safeInvoke("parse_shipping_note_pdf", { filePath: path }));
+  } catch {
+    return; // erreur déjà affichée par safeInvoke
+  }
+
+  const fillIfEmpty = (id, value) => {
+    const field = el(id);
+    if (value && !field.value.trim()) field.value = value;
+  };
+  fillIfEmpty("q-supplier", parsed.agency);
+  fillIfEmpty("q-tracking", parsed.tracking_number);
+  fillIfEmpty("q-carrier", parsed.carrier);
+  fillIfEmpty("q-recipient", parsed.recipient);
+  // q-expected a toujours une valeur par défaut ("aujourd'hui", posée par
+  // resetQuickRow) qui ne reflète pas un choix explicite de l'utilisateur —
+  // contrairement aux autres champs, on écrase donc systématiquement dès
+  // qu'une date fiable a été extraite du PDF.
+  if (parsed.expected_date) el("q-expected").value = parsed.expected_date;
+
+  if (parsed.warnings.length > 0) {
+    showToast(parsed.warnings.join(" "), { error: true });
+  } else {
+    showToast("Champs pré-remplis depuis le PDF — vérifiez avant d'ajouter");
+  }
+  el("q-material").focus();
 }
 
 /* ---------- Import Excel ---------- */

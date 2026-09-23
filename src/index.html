@@ -31,6 +31,9 @@
       <!-- Compteurs par statut, cliquables pour filtrer -->
       <section class="stats-bar" id="stats-bar"></section>
 
+      <!-- Filtre Ramassage (bons TNT uniquement) : axe indépendant du statut -->
+      <section class="stats-bar stats-bar-secondary" id="pickup-bar"></section>
+
       <!-- Barre technicien : sélection sticky, mémorisée entre sessions -->
       <section class="tech-bar">
         <span class="tech-label" title="Cliquer un nom sélectionne pour la saisie rapide ET filtre le tableau">Traité par :</span>
@@ -88,6 +91,7 @@
             <col data-col="material" />
             <col data-col="tracking_number" style="width: 145px" />
             <col data-col="carrier" style="width: 100px" />
+            <col data-col="pickup_option" style="width: 90px" />
             <col data-col="recipient" style="width: 140px" />
             <col data-col="expected_date" style="width: 118px" />
             <col data-col="received_date" style="width: 118px" />
@@ -101,6 +105,7 @@
               <th data-sort="material" data-col="material" class="sortable resizable">Matériel<span class="col-resize-handle"></span></th>
               <th data-sort="tracking_number" data-col="tracking_number" class="sortable resizable">N° suivi<span class="col-resize-handle"></span></th>
               <th data-sort="carrier" data-col="carrier" class="sortable resizable">Transporteur<span class="col-resize-handle"></span></th>
+              <th data-sort="pickup_option" data-col="pickup_option" class="sortable resizable" title="Option de ramassage occasionnel (bons TNT uniquement)">Ramassage<span class="col-resize-handle"></span></th>
               <th data-sort="recipient" data-col="recipient" class="sortable resizable">Destinataire<span class="col-resize-handle"></span></th>
               <th data-sort="expected_date" data-col="expected_date" class="sortable resizable">Date prévue<span class="col-resize-handle"></span></th>
               <th data-sort="received_date" data-col="received_date" class="sortable resizable">Date reçue<span class="col-resize-handle"></span></th>
@@ -130,6 +135,13 @@
                   <option value="DPD">DPD</option>
                 </select>
               </td>
+              <td>
+                <select id="q-pickup-option" title="Option de ramassage occasionnel (bons TNT uniquement)">
+                  <option value="">Ramassage —</option>
+                  <option value="with_pickup">Avec ramassage occasionnel</option>
+                  <option value="without_pickup">Sans ramassage occasionnel</option>
+                </select>
+              </td>
               <td><input id="q-recipient" list="recipients-list" placeholder="Destinataire" /></td>
               <td><input id="q-expected" type="date" /></td>
               <td>
@@ -139,7 +151,7 @@
             </tr>
           </tbody>
           <tbody id="shipments-body">
-            <tr><td colspan="10" class="empty">Chargement…</td></tr>
+            <tr><td colspan="11" class="empty">Chargement…</td></tr>
           </tbody>
         </table>
         </div>
@@ -171,6 +183,13 @@
             <option value="">—</option>
             <option value="TNT">TNT</option>
             <option value="DPD">DPD</option>
+          </select>
+        </label>
+        <label id="f-pickup-row">Ramassage
+          <select id="f-pickup-option" title="Option de ramassage occasionnel (bons TNT uniquement)">
+            <option value="">—</option>
+            <option value="with_pickup">Avec ramassage occasionnel</option>
+            <option value="without_pickup">Sans ramassage occasionnel</option>
           </select>
         </label>
         <label>Destinataire / service<input id="f-recipient" /></label>

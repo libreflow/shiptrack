@@ -17,6 +17,17 @@ const STATUS_ORDER = ["shipped", "ordered", "received", "verified"];
 // Cycle rapide au clic sur le badge d'une ligne : envoyé -> reçu -> vérifié -> commandé -> ...
 const STATUS_CYCLE = { shipped: "received", received: "verified", verified: "ordered", ordered: "shipped" };
 
+// Option de bon de transport TNT : avec/sans ramassage occasionnel — voir
+// demande utilisateur du 2026-09-23. PICKUP_LABELS_SHORT pour le badge du
+// tableau (espace limité), PICKUP_LABELS_FULL pour le dialog d'édition et
+// l'export Excel (texte complet demandé explicitement).
+const PICKUP_LABELS_SHORT = { with_pickup: "Avec ramassage", without_pickup: "Sans ramassage" };
+const PICKUP_LABELS_FULL = {
+  with_pickup: "Avec ramassage occasionnel",
+  without_pickup: "Sans ramassage occasionnel",
+};
+const PICKUP_ORDER = ["with_pickup", "without_pickup"];
+
 const TECH_STORAGE_KEY = "shiptrack.lastTech";
 const FILTERS_STORAGE_KEY = "shiptrack.filters";
 const COLLAPSED_MONTHS_KEY = "shiptrack.collapsedMonths";
@@ -70,6 +81,12 @@ let technicianFilterActive = false;
 // que deux contrôles séparés (ancien <select> d'icônes + stats-bar) qui
 // faisaient doublon visuellement pour le même concept.
 let statusFilter = "";
+// Filtre Ramassage (option de bon TNT avec/sans ramassage occasionnel) —
+// AXE INDÉPENDANT du statut (voir filterShipments dans shipments.js) : sa
+// propre barre de puces, pas fusionné avec stats-bar, pour rester
+// combinable avec n'importe quel statut plutôt que de forcer un choix entre
+// les deux dimensions.
+let pickupFilter = "";
 let lastCreated = null;
 let searchDebounceTimer = null;
 let selectedIds = new Set();
@@ -103,6 +120,7 @@ function saveFiltersToStorage() {
     JSON.stringify({
       search: el("search").value,
       status: state.status,
+      pickup: state.pickup,
       groupByMonth: state.groupByMonth,
       sortKey,
       sortDir,
@@ -117,6 +135,7 @@ function restoreFiltersFromStorage() {
     const state = JSON.parse(raw);
     if (state.search) el("search").value = state.search;
     if (state.status) statusFilter = state.status;
+    if (state.pickup) pickupFilter = state.pickup;
     if (state.groupByMonth) el("group-by-month").checked = true;
     if (state.sortKey) sortKey = state.sortKey;
     if (state.sortDir) sortDir = state.sortDir;
@@ -300,6 +319,7 @@ function getActiveFilterState() {
   return {
     search: el("search").value.trim(),
     status: statusFilter,
+    pickup: pickupFilter,
     technicianFilterActive,
     technician: technicianFilterActive ? selectedTech : null,
     groupByMonth: el("group-by-month").checked,
@@ -308,7 +328,7 @@ function getActiveFilterState() {
 
 function hasActiveFilters() {
   const state = getActiveFilterState();
-  return Boolean(state.search) || Boolean(state.status) || state.technicianFilterActive;
+  return Boolean(state.search) || Boolean(state.status) || Boolean(state.pickup) || state.technicianFilterActive;
 }
 
 function updateFilterControls() {
@@ -330,6 +350,7 @@ function renderTable() {
     normalizedSearch: normalizeAccents(state.search),
     normalizeFn: normalizeAccents,
     technicianFilter: state.technician,
+    pickupFilter: state.pickup,
   });
 
   const sorted = sortShipments(filtered, sortKey, sortDir);
@@ -348,12 +369,13 @@ function renderTable() {
 
   el("row-count").textContent = `${filtered.length} / ${allShipments.length}`;
   renderStatsBar();
+  renderPickupBar();
   renderBulkBar();
   saveFiltersToStorage();
 
   const body = el("shipments-body");
   if (sorted.length === 0) {
-    body.innerHTML = `<tr><td colspan="10" class="empty">Aucune expédition</td></tr>`;
+    body.innerHTML = `<tr><td colspan="11" class="empty">Aucune expédition</td></tr>`;
     el("load-more-wrap").classList.add("hidden");
     updateSelectAllCheckbox();
     return;
@@ -402,6 +424,17 @@ function shipmentRowHtml(s) {
   const recipientCell = s.recipient
     ? `<td data-field="recipient" title="${escapeHtml(s.recipient)}">${escapeHtml(s.recipient)}</td>`
     : `<td data-field="recipient" class="cell-empty-hint" title="Double-clic pour renseigner le destinataire">À renseigner</td>`;
+  // Non pertinent hors TNT (voir models.rs) : cellule vide et non éditable
+  // dès que le transporteur n'est pas TNT, même si une valeur traîne en base
+  // (ex: changement de transporteur après coup) — évite d'afficher/proposer
+  // une info qui n'a pas de sens pour DPD et les autres transporteurs.
+  const effectiveCarrier = s.carrier || inferredCarrier;
+  const pickupCell =
+    effectiveCarrier === "TNT"
+      ? s.pickup_option
+        ? `<td data-field="pickup_option" class="pickup-badge pickup-${s.pickup_option}" title="${escapeHtml(PICKUP_LABELS_FULL[s.pickup_option])}">${escapeHtml(PICKUP_LABELS_SHORT[s.pickup_option])}</td>`
+        : `<td data-field="pickup_option" class="cell-empty-hint" title="Double-clic pour renseigner l'option de ramassage">À renseigner</td>`
+      : `<td class="pickup-cell-na" title="Non pertinent hors TNT"></td>`;
   return `
     <tr data-id="${s.id}">
       <td><input type="checkbox" class="row-checkbox" data-select-id="${s.id}" ${checked} /></td>
@@ -410,6 +443,7 @@ function shipmentRowHtml(s) {
       <td class="material-cell" data-field="material" title="${escapeHtml(s.material)}">${escapeHtml(s.material)}</td>
       ${trackingCell}
       ${carrierCell}
+      ${pickupCell}
       ${recipientCell}
       ${dateCell("expected_date", s.expected_date)}
       ${dateCell("received_date", s.received_date)}
@@ -444,7 +478,7 @@ function renderGroupedBody(sorted) {
     const collapsed = isMonthCollapsed(key, curMonth, collapsedOverrides);
     html.push(`
       <tr class="month-header-row" data-month-key="${key}">
-        <td colspan="10">
+        <td colspan="11">
           <button type="button" class="month-toggle" data-month-toggle="${key}">
             <span class="month-chevron ${collapsed ? "collapsed" : ""}">▾</span>
             <span class="month-name">${monthLabel(key)}</span>
@@ -594,6 +628,7 @@ function buildUpdatePayload(s, overrides) {
     expected_date: s.expected_date,
     received_date: s.received_date,
     notes: s.notes,
+    pickup_option: s.pickup_option,
     ...overrides,
   };
 }
@@ -619,6 +654,10 @@ function startInlineEdit(cell, id) {
       legacyOption.textContent = `${originalValue} (valeur existante)`;
       input.appendChild(legacyOption);
     }
+    input.value = originalValue;
+  } else if (field === "pickup_option") {
+    input = document.createElement("select");
+    input.innerHTML = `<option value="">—</option><option value="with_pickup">${PICKUP_LABELS_FULL.with_pickup}</option><option value="without_pickup">${PICKUP_LABELS_FULL.without_pickup}</option>`;
     input.value = originalValue;
   } else {
     input = document.createElement("input");
@@ -930,6 +969,45 @@ function renderStatsBar() {
   });
 }
 
+/**
+ * Barre de filtre Ramassage (option de bon TNT, indépendante du statut —
+ * voir pickupFilter). Masquée entièrement tant qu'aucune expédition n'a
+ * cette info renseignée : inutile d'occuper de l'espace pour un filtre sur
+ * un champ encore vide partout (données historiques jamais renseignées,
+ * voir demande utilisateur du 2026-09-23).
+ */
+function renderPickupBar() {
+  const container = el("pickup-bar");
+  const counts = PICKUP_ORDER.map((value) => ({
+    value,
+    count: allShipments.filter((s) => s.pickup_option === value).length,
+  }));
+
+  if (counts.every((c) => c.count === 0)) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = counts
+    .map(({ value, count }) => {
+      const active = value === pickupFilter;
+      return `<button type="button" class="stat-chip pickup-chip ${active ? "active" : ""}" data-pickup-option="${value}" title="Filtrer sur ${PICKUP_LABELS_FULL[value]}">
+      <span class="stat-count">${count}</span>
+      <span>${PICKUP_LABELS_FULL[value]}</span>
+    </button>`;
+    })
+    .join("");
+
+  container.querySelectorAll("[data-pickup-option]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const value = chip.dataset.pickupOption;
+      pickupFilter = pickupFilter === value ? "" : value;
+      visibleCount = PAGE_SIZE;
+      renderTable();
+    });
+  });
+}
+
 async function cycleStatus(id) {
   const s = allShipments.find((x) => x.id === id);
   if (!s) return;
@@ -1021,13 +1099,28 @@ function currentTechnician() {
 
 /* ---------- Ligne de saisie rapide ---------- */
 
-const QUICK_FIELDS = ["q-supplier", "q-material", "q-tracking", "q-carrier", "q-recipient", "q-expected"];
+const QUICK_FIELDS = ["q-supplier", "q-material", "q-tracking", "q-carrier", "q-pickup-option", "q-recipient", "q-expected"];
 
 function resetQuickRow() {
   QUICK_FIELDS.forEach((id) => (el(id).value = ""));
   el("q-expected").value = todayIso();
   el("q-duplicate-warning").classList.add("hidden");
   el("q-supplier-warning").classList.add("hidden");
+  updateQuickPickupOptionAvailability();
+}
+
+/**
+ * L'option de ramassage occasionnel n'a de sens que pour un bon TNT (voir
+ * models.rs) — désactive et vide le select dès que Transporteur ≠ TNT,
+ * plutôt que de le masquer complètement : reste visible en grisé pour que
+ * l'utilisateur comprenne POURQUOI il est indisponible (association avec
+ * Transporteur), au lieu d'un champ qui disparaît sans explication.
+ */
+function updateQuickPickupOptionAvailability() {
+  const isTnt = el("q-carrier").value === "TNT";
+  const select = el("q-pickup-option");
+  select.disabled = !isTnt;
+  if (!isTnt) select.value = "";
 }
 
 function checkDuplicateTracking(value, { excludeId = null } = {}) {
@@ -1104,6 +1197,7 @@ async function submitQuickRow({ keepFieldsForNext = false } = {}) {
     tracking_number: el("q-tracking").value.trim() || null,
     expected_date: el("q-expected").value || null,
     notes: tech ? `Traité par: ${tech}` : null,
+    pickup_option: el("q-pickup-option").value || null,
   };
 
   let created;
@@ -1125,6 +1219,7 @@ async function submitQuickRow({ keepFieldsForNext = false } = {}) {
         expected_date: created.expected_date,
         received_date: null,
         notes: created.notes,
+        pickup_option: created.pickup_option,
       },
     });
   } catch {
@@ -1158,6 +1253,8 @@ function duplicateLastRow() {
   el("q-material").value = lastCreated.material ?? "";
   el("q-tracking").value = "";
   el("q-carrier").value = lastCreated.carrier ?? "";
+  el("q-pickup-option").value = lastCreated.pickup_option ?? "";
+  updateQuickPickupOptionAvailability();
   el("q-recipient").value = lastCreated.recipient ?? "";
   el("q-expected").value = todayIso();
   el("q-supplier").focus();
@@ -1319,6 +1416,7 @@ function openEditDialog(id) {
   el("f-material").value = s.material;
   el("f-tracking").value = s.tracking_number ?? "";
   el("f-carrier").value = s.carrier ?? "";
+  el("f-pickup-option").value = s.pickup_option ?? "";
   el("f-recipient").value = s.recipient ?? "";
   el("f-status").value = s.status;
   el("f-expected").value = s.expected_date ?? "";
@@ -1327,9 +1425,18 @@ function openEditDialog(id) {
   el("btn-delete").classList.remove("hidden");
   updateTrackingLinkButton();
   updateReceivedRowVisibility();
+  updateDialogPickupOptionAvailability();
   updateDialogDuplicateWarning();
   updateSupplierSimilarWarning(el("f-supplier"), el("f-supplier-warning"), { excludeId: s.id });
   el("shipment-dialog").showModal();
+}
+
+/** Même logique que updateQuickPickupOptionAvailability, pour le dialog complet. */
+function updateDialogPickupOptionAvailability() {
+  const isTnt = el("f-carrier").value === "TNT";
+  const select = el("f-pickup-option");
+  select.disabled = !isTnt;
+  if (!isTnt) select.value = "";
 }
 
 async function saveShipment(e) {
@@ -1372,6 +1479,7 @@ async function saveShipment(e) {
         expected_date: el("f-expected").value || null,
         received_date: el("f-received").value || null,
         notes: el("f-notes").value.trim() || null,
+        pickup_option: el("f-pickup-option").value || null,
       },
     });
   } catch {
@@ -1450,6 +1558,10 @@ async function startPdfImport() {
   fillIfEmpty("q-tracking", parsed.tracking_number);
   fillIfEmpty("q-carrier", parsed.carrier);
   fillIfEmpty("q-recipient", parsed.recipient);
+  // fillIfEmpty ne déclenche pas d'événement "change" sur q-carrier : sans cet
+  // appel explicite, le select Ramassage resterait désactivé après un import
+  // PDF qui vient de remplir Transporteur à "TNT".
+  updateQuickPickupOptionAvailability();
   // q-expected a toujours une valeur par défaut ("aujourd'hui", posée par
   // resetQuickRow) qui ne reflète pas un choix explicite de l'utilisateur —
   // contrairement aux autres champs, on écrase donc systématiquement dès
@@ -1643,6 +1755,7 @@ window.addEventListener("DOMContentLoaded", () => {
   applyColumnWidths();
   setupColumnResizing();
   el("q-expected").value = todayIso();
+  updateQuickPickupOptionAvailability();
 
   el("btn-cancel").addEventListener("click", () => el("shipment-dialog").close());
   el("btn-delete").addEventListener("click", deleteShipment);
@@ -1668,6 +1781,7 @@ window.addEventListener("DOMContentLoaded", () => {
   el("q-supplier").addEventListener("input", () => {
     updateSupplierSimilarWarning(el("q-supplier"), el("q-supplier-warning"));
   });
+  el("q-carrier").addEventListener("change", updateQuickPickupOptionAvailability);
   el("tech-custom").addEventListener("input", renderTechButtons);
   el("f-tracking").addEventListener("input", () => {
     updateTrackingLinkButton();
@@ -1677,6 +1791,7 @@ window.addEventListener("DOMContentLoaded", () => {
     updateSupplierSimilarWarning(el("f-supplier"), el("f-supplier-warning"), { excludeId: el("f-id").value });
   });
   el("f-status").addEventListener("change", updateReceivedRowVisibility);
+  el("f-carrier").addEventListener("change", updateDialogPickupOptionAvailability);
   el("f-tracking-link").addEventListener("click", () => {
     const url = buildTrackingUrl(el("f-tracking").value);
     if (url) {
@@ -1710,6 +1825,7 @@ window.addEventListener("DOMContentLoaded", () => {
   el("btn-reset-filters").addEventListener("click", () => {
     el("search").value = "";
     statusFilter = "";
+    pickupFilter = "";
     technicianFilterActive = false;
     renderTechButtons();
     visibleCount = PAGE_SIZE;

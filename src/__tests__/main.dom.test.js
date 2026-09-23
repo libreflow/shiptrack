@@ -1969,3 +1969,155 @@ describe("main.js — archivage (garder uniquement une année récente active)",
     expect(invokeMock).not.toHaveBeenCalledWith("reload_archive", expect.anything());
   });
 });
+
+describe("main.js — ramassage occasionnel (option de bon TNT)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("le select Ramassage démarre désactivé (Transporteur vide)", async () => {
+    await loadApp({ shipments: [] });
+    expect(document.getElementById("q-pickup-option").disabled).toBe(true);
+  });
+
+  it("choisir TNT active le select Ramassage, choisir DPD le désactive et le vide", async () => {
+    await loadApp({ shipments: [] });
+    const carrier = document.getElementById("q-carrier");
+    const pickup = document.getElementById("q-pickup-option");
+
+    carrier.value = "TNT";
+    carrier.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(pickup.disabled).toBe(false);
+
+    pickup.value = "with_pickup";
+    carrier.value = "DPD";
+    carrier.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(pickup.disabled).toBe(true);
+    expect(pickup.value).toBe("");
+  });
+
+  it("la soumission de la saisie rapide envoie pickup_option choisi", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "create_shipment")
+        return makeShipment({ id: "new-id", carrier: "TNT", pickup_option: "with_pickup" });
+      if (cmd === "update_shipment") return null;
+      return null;
+    });
+
+    document.getElementById("q-supplier").value = "Voiron";
+    document.getElementById("q-material").value = "Écran";
+    const carrier = document.getElementById("q-carrier");
+    carrier.value = "TNT";
+    carrier.dispatchEvent(new window.Event("change", { bubbles: true }));
+    document.getElementById("q-pickup-option").value = "with_pickup";
+
+    document.getElementById("q-submit").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const createCall = invokeMock.mock.calls.find((c) => c[0] === "create_shipment");
+    expect(createCall[1].shipment.pickup_option).toBe("with_pickup");
+  });
+
+  it("le dialog d'édition pré-remplit Ramassage et active le select si Transporteur = TNT", async () => {
+    const shipment = makeShipment({ carrier: "TNT", pickup_option: "without_pickup" });
+    await loadApp({ shipments: [shipment] });
+
+    document.querySelector(`[data-id="${shipment.id}"] [data-field="supplier"]`).dispatchEvent(
+      new window.Event("click", { bubbles: true })
+    );
+    await new Promise((r) => setTimeout(r, 250));
+
+    expect(document.getElementById("f-pickup-option").value).toBe("without_pickup");
+    expect(document.getElementById("f-pickup-option").disabled).toBe(false);
+  });
+
+  it("le dialog d'édition désactive Ramassage si Transporteur n'est pas TNT", async () => {
+    const shipment = makeShipment({ carrier: "DPD", pickup_option: null });
+    await loadApp({ shipments: [shipment] });
+
+    document.querySelector(`[data-id="${shipment.id}"] [data-field="supplier"]`).dispatchEvent(
+      new window.Event("click", { bubbles: true })
+    );
+    await new Promise((r) => setTimeout(r, 250));
+
+    expect(document.getElementById("f-pickup-option").disabled).toBe(true);
+  });
+
+  it("enregistrer depuis le dialog envoie le pickup_option sélectionné", async () => {
+    const shipment = makeShipment({ carrier: "TNT", pickup_option: null, tracking_number: null });
+    await loadApp({ shipments: [shipment] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [shipment];
+      if (cmd === "update_shipment") return shipment;
+      return null;
+    });
+
+    document.querySelector(`[data-id="${shipment.id}"] [data-field="supplier"]`).dispatchEvent(
+      new window.Event("click", { bubbles: true })
+    );
+    await new Promise((r) => setTimeout(r, 250));
+
+    document.getElementById("f-pickup-option").value = "with_pickup";
+    document.getElementById("shipment-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const updateCall = invokeMock.mock.calls.find((c) => c[0] === "update_shipment");
+    expect(updateCall[1].shipment.pickup_option).toBe("with_pickup");
+  });
+
+  it("le tableau affiche un badge Ramassage pour une expédition TNT renseignée", async () => {
+    const shipment = makeShipment({ carrier: "TNT", pickup_option: "with_pickup" });
+    await loadApp({ shipments: [shipment] });
+
+    const cell = document.querySelector(`[data-id="${shipment.id}"] [data-field="pickup_option"]`);
+    expect(cell).not.toBeNull();
+    expect(cell.textContent).toContain("Avec ramassage");
+    expect(cell.title).toContain("occasionnel");
+  });
+
+  it("le tableau n'affiche pas de cellule éditable Ramassage pour un transporteur non-TNT", async () => {
+    const shipment = makeShipment({ carrier: "DPD", pickup_option: null });
+    await loadApp({ shipments: [shipment] });
+
+    expect(document.querySelector(`[data-id="${shipment.id}"] [data-field="pickup_option"]`)).toBeNull();
+  });
+
+  it("la barre de filtre Ramassage reste vide tant qu'aucune expédition n'a l'info renseignée", async () => {
+    await loadApp({ shipments: [makeShipment({ carrier: "TNT", pickup_option: null })] });
+    expect(document.getElementById("pickup-bar").innerHTML.trim()).toBe("");
+  });
+
+  it("la barre de filtre Ramassage affiche les puces dès qu'une expédition a l'info, et filtre au clic", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "a", carrier: "TNT", pickup_option: "with_pickup" }),
+        makeShipment({ id: "b", carrier: "TNT", pickup_option: "without_pickup" }),
+        makeShipment({ id: "c", carrier: "DPD", pickup_option: null }),
+      ],
+    });
+
+    const chip = document.querySelector('[data-pickup-option="with_pickup"]');
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toContain("1");
+
+    chip.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("row-count").textContent).toContain("1 /");
+  });
+
+  it("Réinitialiser remet aussi le filtre Ramassage à zéro", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "a", carrier: "TNT", pickup_option: "with_pickup" })] });
+
+    document.querySelector('[data-pickup-option="with_pickup"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById("btn-reset-filters").classList.contains("hidden")).toBe(false);
+
+    document.getElementById("btn-reset-filters").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.querySelector('[data-pickup-option="with_pickup"]').classList.contains("active")).toBe(false);
+  });
+});

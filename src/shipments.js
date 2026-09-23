@@ -44,13 +44,21 @@ export function matchesTechnician(shipment, techName, normalizeFn) {
  * Filtre une liste d'expéditions selon statut / recherche texte.
  * `normalizedSearch` doit déjà être passé par normalizeAccents et trim()
  * par l'appelant (ce module ne connaît pas la logique d'accents).
+ *
+ * `pickupFilter` (option de bon TNT avec/sans ramassage occasionnel) est un
+ * axe de filtrage INDÉPENDANT du statut — les deux peuvent être actifs
+ * simultanément (ex: "Expédié" ET "Avec ramassage"), contrairement à
+ * statusFilter/technicianFilter qui portent sur des dimensions différentes
+ * mais suivent la même logique de combinaison (ET logique entre tous les
+ * filtres actifs).
  */
 export function filterShipments(
   shipments,
-  { statusFilter, normalizedSearch, normalizeFn, technicianFilter } = {}
+  { statusFilter, normalizedSearch, normalizeFn, technicianFilter, pickupFilter } = {}
 ) {
   return shipments.filter((s) => {
     if (statusFilter && s.status !== statusFilter) return false;
+    if (pickupFilter && s.pickup_option !== pickupFilter) return false;
     if (technicianFilter && !matchesTechnician(s, technicianFilter, normalizeFn)) return false;
     if (!normalizedSearch) return true;
     const haystack = normalizeFn(

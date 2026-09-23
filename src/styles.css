@@ -217,6 +217,14 @@ body {
 .stat-dot-received { background: #10b981; }
 .stat-dot-verified { background: #7c3aed; }
 
+/* Barre de filtre Ramassage (secondaire, sous stats-bar) : mêmes puces mais
+   sans le point de couleur (pas de code couleur par valeur, contrairement au
+   statut) ni le chip "Tous" (2 valeurs seulement, l'absence de sélection
+   EST déjà "tous" implicitement). */
+.stats-bar-secondary { margin-top: -2px; }
+.stats-bar-secondary:empty { margin: 0; }
+.pickup-chip { font-size: 12px; padding: 4px 10px; }
+
 /* Barre technicien */
 .tech-bar {
   display: flex;
@@ -449,6 +457,24 @@ main {
 .carrier-inferred {
   color: var(--text-muted);
   font-style: italic;
+}
+.pickup-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.pickup-cell-na {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    var(--border) 4px,
+    var(--border) 5px
+  );
+}
+select:disabled,
+select:disabled option {
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 .tracking-link-btn {
   border: none;

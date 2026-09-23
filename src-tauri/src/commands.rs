@@ -31,6 +31,19 @@ fn clean_date(s: Option<String>) -> Option<String> {
     Some(s)
 }
 
+/// Ne conserve `pickup_option` que si c'est une des deux valeurs valides —
+/// n'importe quelle autre valeur (y compris une chaîne vide envoyée par
+/// erreur) devient NULL plutôt que de violer le CHECK en base et faire
+/// planter la commande. Défense en profondeur : le frontend n'envoie déjà
+/// que ces deux valeurs ou rien, mais mieux vaut ignorer silencieusement une
+/// valeur inattendue que de renvoyer une erreur SQL opaque à l'utilisateur.
+fn clean_pickup_option(s: Option<String>) -> Option<String> {
+    match s.as_deref() {
+        Some("with_pickup") | Some("without_pickup") => s,
+        _ => None,
+    }
+}
+
 pub fn row_to_shipment(row: &rusqlite::Row) -> rusqlite::Result<Shipment> {
     Ok(Shipment {
         id: row.get("id")?,
@@ -43,6 +56,7 @@ pub fn row_to_shipment(row: &rusqlite::Row) -> rusqlite::Result<Shipment> {
         expected_date: row.get("expected_date")?,
         received_date: row.get("received_date")?,
         notes: row.get("notes")?,
+        pickup_option: row.get("pickup_option")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -73,8 +87,8 @@ pub fn create_shipment(state: State<DbState>, shipment: NewShipment) -> Result<S
 fn create_shipment_impl(conn: &rusqlite::Connection, shipment: NewShipment) -> Result<Shipment, String> {
     let id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO shipments (id, supplier, tracking_number, carrier, recipient, material, status, expected_date, notes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'ordered', ?7, ?8)",
+        "INSERT INTO shipments (id, supplier, tracking_number, carrier, recipient, material, status, expected_date, notes, pickup_option)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'ordered', ?7, ?8, ?9)",
         params![
             id,
             clean_whitespace(&shipment.supplier),
@@ -84,6 +98,7 @@ fn create_shipment_impl(conn: &rusqlite::Connection, shipment: NewShipment) -> R
             clean_whitespace(&shipment.material),
             clean_date(shipment.expected_date),
             shipment.notes,
+            clean_pickup_option(shipment.pickup_option),
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -110,7 +125,7 @@ fn update_shipment_impl(conn: &rusqlite::Connection, shipment: UpdateShipment) -
     conn.execute(
         "UPDATE shipments SET supplier = ?1, tracking_number = ?2, carrier = ?3, recipient = ?4,
          material = ?5, status = ?6, expected_date = ?7, received_date = ?8, notes = ?9,
-         updated_at = datetime('now') WHERE id = ?10",
+         pickup_option = ?10, updated_at = datetime('now') WHERE id = ?11",
         params![
             clean_whitespace(&shipment.supplier),
             clean_opt(shipment.tracking_number),
@@ -121,6 +136,7 @@ fn update_shipment_impl(conn: &rusqlite::Connection, shipment: UpdateShipment) -
             clean_date(shipment.expected_date),
             received_date,
             shipment.notes,
+            clean_pickup_option(shipment.pickup_option),
             shipment.id,
         ],
     )
@@ -206,7 +222,7 @@ pub fn export_shipments_xlsx(
 
     let headers = [
         "Agence", "N° suivi", "Transporteur", "Destinataire", "Matériel",
-        "Statut", "Date prévue", "Date reçue", "Notes",
+        "Statut", "Ramassage", "Date prévue", "Date reçue", "Notes",
     ];
     for (col, h) in headers.iter().enumerate() {
         sheet.write_string(0, col as u16, *h).map_err(|e| e.to_string())?;
@@ -214,15 +230,21 @@ pub fn export_shipments_xlsx(
 
     for (i, s) in shipments.iter().enumerate() {
         let row = (i + 1) as u32;
+        let pickup_label = match s.pickup_option.as_deref() {
+            Some("with_pickup") => "Avec ramassage occasionnel",
+            Some("without_pickup") => "Sans ramassage occasionnel",
+            _ => "",
+        };
         sheet.write_string(row, 0, &s.supplier).map_err(|e| e.to_string())?;
         sheet.write_string(row, 1, s.tracking_number.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
         sheet.write_string(row, 2, s.carrier.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
         sheet.write_string(row, 3, s.recipient.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
         sheet.write_string(row, 4, &s.material).map_err(|e| e.to_string())?;
         sheet.write_string(row, 5, &s.status).map_err(|e| e.to_string())?;
-        sheet.write_string(row, 6, s.expected_date.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
-        sheet.write_string(row, 7, s.received_date.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
-        sheet.write_string(row, 8, s.notes.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+        sheet.write_string(row, 6, pickup_label).map_err(|e| e.to_string())?;
+        sheet.write_string(row, 7, s.expected_date.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+        sheet.write_string(row, 8, s.received_date.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+        sheet.write_string(row, 9, s.notes.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
     }
 
     workbook.save(&file_path).map_err(|e| e.to_string())?;
@@ -251,6 +273,7 @@ mod tests {
             material: "PC  portable".to_string(),
             expected_date: Some("2026-10-15".to_string()),
             notes: None,
+            pickup_option: None,
         }
     }
 
@@ -308,6 +331,7 @@ mod tests {
                 expected_date: created.expected_date.clone(),
                 received_date: None,
                 notes: None,
+                pickup_option: None,
             },
         )
         .unwrap();
@@ -334,6 +358,7 @@ mod tests {
                 expected_date: created.expected_date.clone(),
                 received_date: Some("2026-10-20".to_string()),
                 notes: None,
+                pickup_option: None,
             },
         )
         .unwrap();
@@ -353,6 +378,7 @@ mod tests {
                 expected_date: created.expected_date.clone(),
                 received_date: Some("2026-10-20".to_string()), // ignoré car status != received/verified
                 notes: None,
+                pickup_option: None,
             },
         )
         .unwrap();
@@ -446,5 +472,75 @@ mod tests {
     #[test]
     fn clean_date_rejects_too_short_string() {
         assert_eq!(clean_date(Some("abc".to_string())), None);
+    }
+
+    #[test]
+    fn clean_pickup_option_accepts_valid_values() {
+        assert_eq!(
+            clean_pickup_option(Some("with_pickup".to_string())),
+            Some("with_pickup".to_string())
+        );
+        assert_eq!(
+            clean_pickup_option(Some("without_pickup".to_string())),
+            Some("without_pickup".to_string())
+        );
+    }
+
+    #[test]
+    fn clean_pickup_option_rejects_unknown_values_and_none() {
+        assert_eq!(clean_pickup_option(None), None);
+        assert_eq!(clean_pickup_option(Some("".to_string())), None);
+        assert_eq!(clean_pickup_option(Some("n'importe quoi".to_string())), None);
+    }
+
+    #[test]
+    fn create_shipment_persists_pickup_option() {
+        let conn = test_db();
+        let mut shipment = sample_new_shipment();
+        shipment.pickup_option = Some("with_pickup".to_string());
+        let created = create_shipment_impl(&conn, shipment).unwrap();
+        assert_eq!(created.pickup_option.as_deref(), Some("with_pickup"));
+    }
+
+    #[test]
+    fn create_shipment_without_pickup_option_stays_null() {
+        let conn = test_db();
+        let created = create_shipment_impl(&conn, sample_new_shipment()).unwrap();
+        assert_eq!(created.pickup_option, None); // sample_new_shipment() n'en fournit pas
+    }
+
+    #[test]
+    fn create_shipment_rejects_garbage_pickup_option_silently() {
+        let conn = test_db();
+        let mut shipment = sample_new_shipment();
+        shipment.pickup_option = Some("valeur-invalide".to_string());
+        let created = create_shipment_impl(&conn, shipment).unwrap();
+        assert_eq!(created.pickup_option, None);
+    }
+
+    #[test]
+    fn update_shipment_changes_pickup_option() {
+        let conn = test_db();
+        let created = create_shipment_impl(&conn, sample_new_shipment()).unwrap();
+
+        let updated = update_shipment_impl(
+            &conn,
+            UpdateShipment {
+                id: created.id.clone(),
+                supplier: created.supplier.clone(),
+                tracking_number: created.tracking_number.clone(),
+                carrier: created.carrier.clone(),
+                recipient: created.recipient.clone(),
+                material: created.material.clone(),
+                status: created.status.clone(),
+                expected_date: created.expected_date.clone(),
+                received_date: None,
+                notes: None,
+                pickup_option: Some("without_pickup".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.pickup_option.as_deref(), Some("without_pickup"));
     }
 }

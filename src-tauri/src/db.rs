@@ -5,8 +5,9 @@ use std::sync::Mutex;
 pub struct DbState(pub Mutex<Connection>);
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(
-        r#"
+    Migrations::new(vec![
+        M::up(
+            r#"
         CREATE TABLE shipments (
             id              TEXT PRIMARY KEY,
             supplier        TEXT NOT NULL,
@@ -32,7 +33,18 @@ pub fn migrations() -> Migrations<'static> {
             created_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
         "#,
-    )])
+        ),
+        // Option de bon de transport TNT (avec/sans ramassage occasionnel — voir
+        // demande utilisateur du 2026-09-23). NULL par défaut pour toutes les
+        // lignes existantes ET pour tout transporteur autre que TNT (champ non
+        // pertinent) : on ne devine jamais une valeur, l'absence est une info
+        // légitime ("non renseigné"), pas une erreur. NULL passe toujours le
+        // CHECK, donc cet ALTER TABLE ne touche aucune ligne préexistante.
+        M::up(
+            "ALTER TABLE shipments ADD COLUMN pickup_option TEXT
+             CHECK (pickup_option IS NULL OR pickup_option IN ('with_pickup','without_pickup'));",
+        ),
+    ])
 }
 
 /// Opens (creating if needed) the SQLite database in the app's local data dir

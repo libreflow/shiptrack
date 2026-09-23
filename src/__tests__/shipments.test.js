@@ -100,6 +100,39 @@ describe("filterShipments", () => {
     const result = filterShipments(withNotes, { normalizeFn: identity });
     expect(result.length).toBe(2);
   });
+
+  it("filtre par option de ramassage (pickup_option)", () => {
+    const withPickup = [
+      { ...shipments[0], pickup_option: "with_pickup" },
+      { ...shipments[1], pickup_option: "without_pickup" },
+      { ...shipments[2], pickup_option: null },
+    ];
+    const result = filterShipments(withPickup, { pickupFilter: "with_pickup", normalizeFn: identity });
+    expect(result.map((s) => s.id)).toEqual(["1"]);
+  });
+
+  it("combine statut ET ramassage (axes indépendants, ET logique)", () => {
+    const withPickup = [
+      { ...shipments[0], pickup_option: "with_pickup" }, // shipped + with_pickup
+      { ...shipments[1], status: "shipped", pickup_option: "without_pickup" }, // shipped + without_pickup
+      { ...shipments[2], pickup_option: "with_pickup" }, // received + with_pickup
+    ];
+    const result = filterShipments(withPickup, {
+      statusFilter: "shipped",
+      pickupFilter: "with_pickup",
+      normalizeFn: identity,
+    });
+    expect(result.map((s) => s.id)).toEqual(["1"]);
+  });
+
+  it("sans pickupFilter ne filtre rien sur pickup_option", () => {
+    const withPickup = [
+      { ...shipments[0], pickup_option: "with_pickup" },
+      { ...shipments[1], pickup_option: null },
+    ];
+    const result = filterShipments(withPickup, { normalizeFn: identity });
+    expect(result.length).toBe(2);
+  });
 });
 
 describe("matchesTechnician", () => {

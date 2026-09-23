@@ -1791,3 +1791,181 @@ describe("main.js — import PDF (bon de transport)", () => {
     expect(document.getElementById("q-expected").value).toBe("2026-09-08");
   });
 });
+
+describe("main.js — archivage (garder uniquement une année récente active)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("le menu Fichier ouvre le dialog d'archivage et affiche l'aperçu du nombre archivable", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "count_archivable") return 42;
+      return null;
+    });
+
+    document.getElementById("btn-file-menu").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("archive-dialog").open).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith("count_archivable", { keepYear: expect.any(Number) });
+    expect(document.getElementById("archive-preview-hint").textContent).toContain("42");
+  });
+
+  it("l'aperçu se met à jour quand l'année change et désactive Archiver si le compte est à 0", async () => {
+    await loadApp({ shipments: [] });
+    let requestedYear = null;
+    invokeMock.mockImplementation(async (cmd, args) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "count_archivable") {
+        requestedYear = args.keepYear;
+        return args.keepYear === 2020 ? 0 : 7;
+      }
+      return null;
+    });
+
+    document.getElementById("btn-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const yearInput = document.getElementById("archive-keep-year");
+    yearInput.value = "2020";
+    yearInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(requestedYear).toBe(2020);
+    expect(document.getElementById("archive-preview-hint").textContent).toContain("Aucune");
+    expect(document.getElementById("btn-archive-confirm").disabled).toBe(true);
+  });
+
+  it("confirmer l'archivage demande une confirmation puis appelle archive_shipments_before", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd, args) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "count_archivable") return 5;
+      if (cmd === "archive_shipments_before") {
+        expect(args.keepYear).toBe(2026);
+        return { archived: 5, kept: 1792, archive_path: "C:/archive.sqlite3", archive_file_name: "shiptrack-archive-avant-2026-x.sqlite3" };
+      }
+      return null;
+    });
+
+    document.getElementById("btn-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("archive-keep-year").value = "2026";
+
+    document.getElementById("archive-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("confirm-dialog").open).toBe(true);
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).toHaveBeenCalledWith("archive_shipments_before", { keepYear: 2026 });
+    expect(document.getElementById("archive-dialog").open).toBe(false);
+  });
+
+  it("annuler la confirmation d'archivage n'appelle pas le backend", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "count_archivable") return 5;
+      return null;
+    });
+
+    document.getElementById("btn-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("archive-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    document.getElementById("confirm-dialog-cancel").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("archive_shipments_before", expect.anything());
+  });
+
+  it("le menu Fichier liste les archives disponibles avec leur nombre d'expéditions", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "list_archives")
+        return [
+          { path: "C:/archives/a.sqlite3", file_name: "shiptrack-archive-avant-2026-a.sqlite3", count: 100 },
+          { path: "C:/archives/b.sqlite3", file_name: "shiptrack-archive-avant-2025-b.sqlite3", count: 20 },
+        ];
+      return null;
+    });
+
+    document.getElementById("btn-reload-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("reload-archive-dialog").open).toBe(true);
+    const options = [...document.getElementById("reload-archive-select").options];
+    expect(options.length).toBe(2);
+    expect(options[0].textContent).toContain("100");
+    expect(options[1].textContent).toContain("20");
+  });
+
+  it("aucune archive disponible affiche un message et n'ouvre pas le dialog", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "list_archives") return [];
+      return null;
+    });
+
+    document.getElementById("btn-reload-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("reload-archive-dialog").open).toBe(false);
+    expect(document.querySelector(".toast")?.textContent || document.body.textContent).toContain("Aucune archive");
+  });
+
+  it("confirmer le rechargement demande une confirmation puis appelle reload_archive avec le bon chemin", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd, args) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "list_archives") return [{ path: "C:/archives/a.sqlite3", file_name: "a.sqlite3", count: 3 }];
+      if (cmd === "reload_archive") {
+        expect(args.archivePath).toBe("C:/archives/a.sqlite3");
+        return 3;
+      }
+      return null;
+    });
+
+    document.getElementById("btn-reload-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    document.getElementById("reload-archive-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("confirm-dialog").open).toBe(true);
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).toHaveBeenCalledWith("reload_archive", { archivePath: "C:/archives/a.sqlite3" });
+    expect(document.getElementById("reload-archive-dialog").open).toBe(false);
+  });
+
+  it("annuler la confirmation de rechargement n'appelle pas le backend", async () => {
+    await loadApp({ shipments: [] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "list_archives") return [{ path: "C:/archives/a.sqlite3", file_name: "a.sqlite3", count: 3 }];
+      return null;
+    });
+
+    document.getElementById("btn-reload-archive").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("reload-archive-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    document.getElementById("confirm-dialog-cancel").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("reload_archive", expect.anything());
+  });
+});

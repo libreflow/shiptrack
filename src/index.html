@@ -20,6 +20,9 @@
               <button type="button" id="export-filtered" class="export-menu-item">Exporter la vue filtrée (Excel)</button>
               <div class="export-menu-separator"></div>
               <button type="button" id="btn-import" class="export-menu-item">Importer un fichier Excel…</button>
+              <div class="export-menu-separator"></div>
+              <button type="button" id="btn-archive" class="export-menu-item">Archiver les anciennes années…</button>
+              <button type="button" id="btn-reload-archive" class="export-menu-item">Recharger une archive…</button>
             </div>
           </div>
         </div>
@@ -208,6 +211,37 @@
           <div class="spacer"></div>
           <button type="button" id="btn-import-cancel" class="btn btn-secondary">Annuler</button>
           <button type="submit" id="btn-import-confirm" class="btn btn-primary">Importer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="archive-dialog">
+      <form id="archive-form" method="dialog">
+        <h2>Archiver les anciennes années</h2>
+        <label>Année à conserver active
+          <input type="number" id="archive-keep-year" min="2015" max="2035" step="1" />
+        </label>
+        <p class="hint" id="archive-preview-hint">Choisissez une année pour voir combien d'expéditions seraient archivées.</p>
+        <p class="hint">Seules les expéditions avec une <strong>date prévue</strong> renseignée et antérieure à cette année sont archivées. Les expéditions sans date restent actives par précaution. Une sauvegarde complète est déjà faite automatiquement (voir dossier <code>backups</code>) — l'archive est un fichier séparé, rechargeable plus tard.</p>
+        <div class="dialog-actions">
+          <div class="spacer"></div>
+          <button type="button" id="btn-archive-cancel" class="btn btn-secondary">Annuler</button>
+          <button type="submit" id="btn-archive-confirm" class="btn btn-danger">Archiver</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="reload-archive-dialog">
+      <form id="reload-archive-form" method="dialog">
+        <h2>Recharger une archive</h2>
+        <label>Archive à recharger
+          <select id="reload-archive-select"></select>
+        </label>
+        <p class="hint hint-danger">⚠ Remplace TOUT le contenu actif par celui de l'archive choisie : ce qui est actif maintenant et n'a pas été archivé disparaîtra de l'application (une sauvegarde de sécurité est prise automatiquement juste avant, voir dossier <code>backups</code>).</p>
+        <div class="dialog-actions">
+          <div class="spacer"></div>
+          <button type="button" id="btn-reload-archive-cancel" class="btn btn-secondary">Annuler</button>
+          <button type="submit" id="btn-reload-archive-confirm" class="btn btn-danger">Recharger</button>
         </div>
       </form>
     </dialog>

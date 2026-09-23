@@ -1,3 +1,4 @@
+mod archive;
 mod commands;
 mod db;
 mod import;
@@ -39,6 +40,10 @@ pub fn run() {
             import::list_excel_sheets,
             import::import_excel_sheet,
             pdf_import::parse_shipping_note_pdf,
+            archive::count_archivable,
+            archive::archive_shipments_before,
+            archive::list_archives,
+            archive::reload_archive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

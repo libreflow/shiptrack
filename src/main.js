@@ -1518,6 +1518,118 @@ async function confirmImport(e) {
   }
 }
 
+/* ---------- Archivage (garder uniquement une année récente active) ---------- */
+
+/**
+ * Ouvre le dialog d'archivage, pré-rempli avec l'année en cours, et met à
+ * jour l'aperçu du nombre d'expéditions archivables à chaque changement
+ * d'année saisie. Seules les expéditions avec une date prévue renseignée ET
+ * antérieure à l'année choisie sont archivables — celles sans date restent
+ * toujours actives (décision produit explicite : ne jamais risquer de
+ * masquer un envoi en cours faute d'une date simplement non saisie).
+ */
+async function updateArchivePreview() {
+  const year = parseInt(el("archive-keep-year").value, 10);
+  const hint = el("archive-preview-hint");
+  const confirmBtn = el("btn-archive-confirm");
+  if (!Number.isInteger(year) || year < 2015 || year > 2035) {
+    hint.textContent = "Choisissez une année pour voir combien d'expéditions seraient archivées.";
+    confirmBtn.disabled = true;
+    return;
+  }
+  try {
+    const count = await safeInvoke("count_archivable", { keepYear: year });
+    if (count === 0) {
+      hint.textContent = `Aucune expédition à archiver avant ${year}.`;
+      confirmBtn.disabled = true;
+    } else {
+      hint.textContent = `${count} expédition(s) avec une date prévue avant ${year} seront archivées.`;
+      confirmBtn.disabled = false;
+    }
+  } catch {
+    // erreur déjà affichée par safeInvoke
+    confirmBtn.disabled = true;
+  }
+}
+
+function startArchive() {
+  el("archive-keep-year").value = new Date().getFullYear();
+  el("archive-dialog").showModal();
+  updateArchivePreview();
+}
+
+async function confirmArchive(e) {
+  e.preventDefault();
+  const year = parseInt(el("archive-keep-year").value, 10);
+  if (!Number.isInteger(year)) return;
+
+  const ok = await confirmDialog(
+    `Archiver toutes les expéditions datées avant ${year} ? Elles seront retirées de la vue active mais resteront récupérables via "Recharger une archive…".`,
+    { title: "Archiver", confirmLabel: "Archiver" }
+  );
+  if (!ok) return;
+
+  try {
+    const result = await withLoading(el("btn-archive-confirm"), "Archivage…", () =>
+      safeInvoke("archive_shipments_before", { keepYear: year })
+    );
+    el("archive-dialog").close();
+    showToast(`${result.archived} expédition(s) archivée(s) dans ${result.archive_file_name} — ${result.kept} restent actives`);
+    await loadShipments();
+  } catch {
+    // erreur déjà affichée par safeInvoke
+  }
+}
+
+/**
+ * Ouvre le dialog de rechargement d'archive, liste les archives disponibles
+ * (nom de fichier + nombre d'expéditions qu'elle contient, pour aider à
+ * distinguer plusieurs archives). Rechargement = remplacement complet du
+ * contenu actif (décision produit explicite, plus simple et plus fiable
+ * qu'une fusion) — une sauvegarde de sécurité est prise côté backend juste
+ * avant, quoi qu'il arrive.
+ */
+async function startReloadArchive() {
+  let archives;
+  try {
+    archives = await safeInvoke("list_archives");
+  } catch {
+    return;
+  }
+  if (!archives || archives.length === 0) {
+    showToast("Aucune archive disponible pour l'instant", { error: true });
+    return;
+  }
+  const select = el("reload-archive-select");
+  select.innerHTML = archives
+    .map((a) => `<option value="${escapeHtml(a.path)}">${escapeHtml(a.file_name)} (${a.count} expédition(s))</option>`)
+    .join("");
+  el("reload-archive-dialog").showModal();
+}
+
+async function confirmReloadArchive(e) {
+  e.preventDefault();
+  const path = el("reload-archive-select").value;
+  if (!path) return;
+
+  const ok = await confirmDialog(
+    "Recharger cette archive va REMPLACER tout le contenu actif. Une sauvegarde de sécurité sera prise automatiquement avant. Continuer ?",
+    { title: "Recharger l'archive", confirmLabel: "Recharger" }
+  );
+  if (!ok) return;
+
+  try {
+    const count = await withLoading(el("btn-reload-archive-confirm"), "Rechargement…", () =>
+      safeInvoke("reload_archive", { archivePath: path })
+    );
+    el("reload-archive-dialog").close();
+    showToast(`${count} expédition(s) rechargée(s) depuis l'archive`);
+    await loadShipments();
+  } catch {
+    // erreur déjà affichée par safeInvoke
+  }
+}
+
 /* ---------- Init ---------- */
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -1657,6 +1769,21 @@ window.addEventListener("DOMContentLoaded", () => {
     pendingImportPath = null;
   });
   el("import-form").addEventListener("submit", confirmImport);
+
+  el("btn-archive").addEventListener("click", () => {
+    el("file-menu").classList.add("hidden");
+    startArchive();
+  });
+  el("archive-keep-year").addEventListener("input", updateArchivePreview);
+  el("btn-archive-cancel").addEventListener("click", () => el("archive-dialog").close());
+  el("archive-form").addEventListener("submit", confirmArchive);
+
+  el("btn-reload-archive").addEventListener("click", () => {
+    el("file-menu").classList.add("hidden");
+    startReloadArchive();
+  });
+  el("btn-reload-archive-cancel").addEventListener("click", () => el("reload-archive-dialog").close());
+  el("reload-archive-form").addEventListener("submit", confirmReloadArchive);
 
   loadShipments();
   el("q-supplier").focus();

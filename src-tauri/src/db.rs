@@ -50,6 +50,27 @@ pub fn init_db(app_data_dir: &std::path::Path) -> Connection {
 
 const MAX_BACKUPS: usize = 14;
 
+/// Sauvegarde immédiate et inconditionnelle (contrairement à `backup_db`
+/// ci-dessus, limité à une fois par jour) — appelée juste avant une opération
+/// destructive qui remplace ou supprime en masse le contenu actif (ex:
+/// recharger une archive), pour garantir un filet de sécurité même si le
+/// backup quotidien automatique a déjà eu lieu aujourd'hui. `reason` apparaît
+/// dans le nom du fichier pour distinguer ces sauvegardes ponctuelles des
+/// sauvegardes quotidiennes normales dans le même dossier `backups/`.
+pub fn backup_db_now(app_data_dir: &std::path::Path, reason: &str) -> Result<std::path::PathBuf, String> {
+    let db_path = app_data_dir.join("shiptrack.sqlite3");
+    if !db_path.exists() {
+        return Err("Base de données introuvable".to_string());
+    }
+    let backups_dir = app_data_dir.join("backups");
+    std::fs::create_dir_all(&backups_dir).map_err(|e| e.to_string())?;
+
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%Hh%M%S").to_string();
+    let backup_path = backups_dir.join(format!("shiptrack_{reason}_{stamp}.sqlite3"));
+    std::fs::copy(&db_path, &backup_path).map_err(|e| e.to_string())?;
+    Ok(backup_path)
+}
+
 /// Sauvegarde la base dans <app_data_dir>/backups/shiptrack_YYYY-MM-DD.sqlite3,
 /// au maximum une fois par jour, puis supprime les sauvegardes les plus
 /// anciennes au-delà de MAX_BACKUPS. Best-effort : n'importe quelle erreur ici

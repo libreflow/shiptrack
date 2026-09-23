@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTrackingUrl, isValidTrackingValue, inferCarrier } from "../tracking.js";
+import { buildTrackingUrl, isValidTrackingValue, inferCarrier, isNumericTrackingValue } from "../tracking.js";
 
 describe("buildTrackingUrl", () => {
   it("construit une URL 17TRACK valide pour un numéro simple", () => {
@@ -77,6 +77,50 @@ describe("isValidTrackingValue", () => {
   it("rejette un nombre trop court ou trop long", () => {
     expect(isValidTrackingValue("1234567", identity)).toBe(false); // 7 chiffres
     expect(isValidTrackingValue("123456789012345678901", identity)).toBe(false); // 21 chiffres
+  });
+});
+
+describe("isNumericTrackingValue", () => {
+  it("vrai pour un numéro TNT/DPD conforme", () => {
+    expect(isNumericTrackingValue("6917777419334322")).toBe(true);
+    expect(isNumericTrackingValue("117777527997554")).toBe(true);
+  });
+
+  it("vrai pour plusieurs numéros séparés (multi-colis)", () => {
+    expect(isNumericTrackingValue("6917777432681151 6917777432681168")).toBe(true);
+    expect(isNumericTrackingValue("1617777321266412 - 1617777421607702")).toBe(true);
+  });
+
+  it("faux pour du texte libre historique (tnt, dpd, à programmer...)", () => {
+    expect(isNumericTrackingValue("tnt")).toBe(false);
+    expect(isNumericTrackingValue("dpd")).toBe(false);
+    expect(isNumericTrackingValue("à programmer semaine 07")).toBe(false);
+    expect(isNumericTrackingValue("Non sécurisé")).toBe(false);
+  });
+
+  it("faux pour une valeur cassée par un artefact d'export (_x000D_)", () => {
+    expect(isNumericTrackingValue("6917777526341571_x000D_")).toBe(false);
+  });
+
+  it("vrai pour des numéros multi-colis séparés par tabulation (comme espace/tiret)", () => {
+    expect(isNumericTrackingValue("6917777420405590\t6917777420405605")).toBe(true);
+  });
+
+  it("faux pour un séparateur non reconnu ('+') entre deux numéros réels", () => {
+    // Cas réel observé en base : "6917777526800819 + 6917777420405590\t6917777420405605"
+    expect(isNumericTrackingValue("6917777526800819 + 6917777420405590")).toBe(false);
+  });
+
+  it("faux pour vide/null/undefined", () => {
+    expect(isNumericTrackingValue("")).toBe(false);
+    expect(isNumericTrackingValue("   ")).toBe(false);
+    expect(isNumericTrackingValue(null)).toBe(false);
+    expect(isNumericTrackingValue(undefined)).toBe(false);
+  });
+
+  it("faux pour un nombre trop court ou trop long", () => {
+    expect(isNumericTrackingValue("1234567")).toBe(false);
+    expect(isNumericTrackingValue("123456789012345678901")).toBe(false);
   });
 });
 

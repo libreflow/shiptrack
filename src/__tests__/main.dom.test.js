@@ -183,6 +183,32 @@ describe("main.js — cycle de statut au clic", () => {
     expect(document.getElementById("shipment-dialog").open).toBe(true);
     expect(document.getElementById("f-supplier").value).toBe("Vitrolles Aéro");
   });
+
+  // Régression : un clic sur une VRAIE cellule de données (data-field —
+  // Agence, Matériel, N° suivi, Transporteur, Destinataire, dates, soit 7
+  // colonnes sur 9) n'ouvrait JAMAIS le dialog avant ce fix : seules les
+  // colonnes checkbox/statut/icône crayon (36px) fonctionnaient, alors que le
+  // tooltip promettait "Cliquer la ligne pour tout modifier". Un simple clic
+  // (pas un double-clic) sur une cellule data-field doit ouvrir le dialog.
+  it("cliquer une seule fois sur une cellule data-field (ex: Agence) ouvre aussi le dialog", async () => {
+    await loadApp({ shipments: [makeShipment()] });
+    const cell = document.querySelector('[data-field="supplier"]');
+    cell.dispatchEvent(new window.Event("click", { bubbles: true, detail: 1 }));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(document.getElementById("shipment-dialog").open).toBe(true);
+  });
+
+  // Le double-clic sur une cellule data-field doit toujours déclencher
+  // l'édition inline, PAS le dialog — le fix ci-dessus ne doit pas casser ça.
+  it("double-cliquer sur une cellule data-field déclenche l'édition inline, pas le dialog", async () => {
+    await loadApp({ shipments: [makeShipment()] });
+    const cell = document.querySelector('[data-field="supplier"]');
+    cell.dispatchEvent(new window.Event("click", { bubbles: true, detail: 1 }));
+    cell.dispatchEvent(new window.Event("dblclick", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(document.getElementById("shipment-dialog").open).toBe(false);
+    expect(cell.querySelector(".inline-edit-input")).toBeTruthy();
+  });
 });
 
 describe("main.js — sélection multiple et actions groupées", () => {
@@ -918,6 +944,31 @@ describe("main.js — lien de suivi 17TRACK", () => {
     await loadApp({ shipments: [makeShipment({ tracking_number: null })] });
     const row = document.querySelector("tr[data-id]");
     row.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+
+    expect(document.getElementById("f-tracking-link").classList.contains("hidden")).toBe(true);
+  });
+
+  // Régression : le bouton de suivi s'affichait pour N'IMPORTE QUEL texte non
+  // vide dans tracking_number, y compris du texte libre historique ("tnt",
+  // "à programmer", artefacts d'export "_x000D_") — 207 lignes réelles
+  // concernées en base. Cliquer dessus ouvrait 17TRACK avec une requête sans
+  // sens. Le bouton ne doit apparaître QUE pour un vrai numéro TNT/DPD.
+  it("n'affiche PAS de bouton de suivi pour du texte libre historique (tableau)", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: "tnt" })] });
+    expect(document.querySelector("[data-track-id]")).toBeFalsy();
+    // Le bouton copier, lui, doit rester présent : le texte reste consultable/copiable.
+    expect(document.querySelector("[data-copy-id]")).toBeTruthy();
+  });
+
+  it("n'affiche PAS de bouton de suivi pour 'Non sécurisé' (tableau)", async () => {
+    await loadApp({ shipments: [makeShipment({ tracking_number: "Non sécurisé" })] });
+    expect(document.querySelector("[data-track-id]")).toBeFalsy();
+  });
+
+  it("n'affiche PAS de lien de suivi dans le dialog pour du texte libre historique", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", tracking_number: "à programmer" })] });
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 250));
 
     expect(document.getElementById("f-tracking-link").classList.contains("hidden")).toBe(true);

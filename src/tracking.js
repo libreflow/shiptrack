@@ -45,6 +45,21 @@ export function isValidTrackingValue(value, normalizeFn) {
 }
 
 /**
+ * Vrai uniquement si la valeur est composée exclusivement de numéros TNT/DPD
+ * conformes (un seul, ou plusieurs séparés par espace/virgule/tiret — envoi
+ * multi-colis). Faux pour tout texte libre ("tnt", "à programmer", "Non
+ * sécurisé"...) — utilisé pour décider si un lien de suivi 17TRACK a un sens,
+ * PAS pour valider la saisie (voir isValidTrackingValue, plus permissif : il
+ * accepte aussi "Non sécurisé"/vide, des valeurs légitimes mais non traçables).
+ */
+export function isNumericTrackingValue(trackingNumber) {
+  const trimmed = (trackingNumber ?? "").trim();
+  if (!trimmed) return false;
+  const parts = trimmed.split(/[\s,-]+/).filter(Boolean);
+  return parts.length > 0 && parts.every((p) => /^\d{8,20}$/.test(p));
+}
+
+/**
  * Déduit un transporteur à afficher quand le champ "Transporteur" n'a pas été
  * renseigné explicitement. En pratique, un n° de suivi numérique (format
  * TNT/DPD) est quasi toujours un envoi TNT — on l'affiche par défaut comme
@@ -55,9 +70,5 @@ export function isValidTrackingValue(value, normalizeFn) {
  */
 export function inferCarrier(carrier, trackingNumber) {
   if (carrier) return carrier;
-  const trimmed = (trackingNumber ?? "").trim();
-  if (!trimmed) return null;
-  const parts = trimmed.split(/[\s,-]+/).filter(Boolean);
-  const isNumericTracking = parts.length > 0 && parts.every((p) => /^\d{8,20}$/.test(p));
-  return isNumericTracking ? "TNT" : null;
+  return isNumericTrackingValue(trackingNumber) ? "TNT" : null;
 }

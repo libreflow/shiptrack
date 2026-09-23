@@ -5,7 +5,7 @@ const { writeText } = window.__TAURI__.clipboardManager;
 import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normalizeShipmentPayload, findSimilarValue } from "./normalize.js";
 import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth, formatDateFr } from "./months.js";
 import { sortShipments, filterShipments } from "./shipments.js";
-import { buildTrackingUrl, isValidTrackingValue, inferCarrier } from "./tracking.js";
+import { buildTrackingUrl, isValidTrackingValue, inferCarrier, isNumericTrackingValue } from "./tracking.js";
 
 const STATUS_LABELS = {
   ordered: "Commandé",
@@ -366,7 +366,11 @@ function shipmentRowHtml(s) {
       ? `<td data-field="carrier" class="carrier-inferred" title="Transporteur déduit du n° de suivi — non renseigné explicitement">${escapeHtml(inferredCarrier)}</td>`
       : `<td data-field="carrier" title="Double-clic pour modifier"></td>`;
   const trackingCell = s.tracking_number
-    ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><button type="button" class="tracking-copy-btn" data-copy-id="${s.id}" title="Copier le numéro de suivi">${escapeHtml(s.tracking_number)}</button><button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button></td>`
+    ? `<td data-field="tracking_number" title="${escapeHtml(s.tracking_number)}"><button type="button" class="tracking-copy-btn" data-copy-id="${s.id}" title="Copier le numéro de suivi">${escapeHtml(s.tracking_number)}</button>${
+        isNumericTrackingValue(s.tracking_number)
+          ? `<button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button>`
+          : ""
+      }</td>`
     : `<td data-field="tracking_number" class="tracking-empty" title="Double-clic pour renseigner le n° de suivi">À éditer</td>`;
   return `
     <tr data-id="${s.id}">
@@ -473,11 +477,16 @@ function wireRowInteractions() {
       if (e.detail > 1) return; // laisse dblclick gérer l'édition inline sur les cellules éditables
       focusedRowId = tr.dataset.id;
       updateRowFocusHighlight();
-      // Simple clic hors cellule éditable : ouvre le dialog complet, avec un
-      // léger délai pour laisser le temps à un éventuel 2e clic d'annuler
-      // l'ouverture si la cellule ciblée est éditable inline.
-      const field = e.target.closest("[data-field]");
-      if (field) return; // dblclick prend le relais sur ces cellules
+      // Simple clic n'importe où sur la ligne (y compris une cellule éditable
+      // inline) ouvre le dialog complet, avec un léger délai pour laisser un
+      // éventuel 2e clic (double-clic) annuler l'ouverture et déclencher
+      // l'édition inline à la place — voir le listener dblclick ci-dessous,
+      // qui appelle clearTimeout(rowClickTimer). Avant ce fix, un simple clic
+      // sur une cellule data-field (Agence, Matériel, N° suivi, Transporteur,
+      // Destinataire, dates — soit 7 des 9 colonnes) n'ouvrait JAMAIS le
+      // dialog : seules les colonnes checkbox/statut/icône crayon (36px de
+      // large) fonctionnaient, alors que le tooltip promettait "Cliquer la
+      // ligne pour tout modifier".
       clearTimeout(rowClickTimer);
       rowClickTimer = setTimeout(() => openEditDialog(tr.dataset.id), 180);
     });
@@ -1203,8 +1212,11 @@ function updateDialogDuplicateWarning() {
 
 function updateTrackingLinkButton() {
   const btn = el("f-tracking-link");
-  const url = buildTrackingUrl(el("f-tracking").value);
-  btn.classList.toggle("hidden", !url);
+  const value = el("f-tracking").value;
+  // N'affiche le lien de suivi que pour un vrai numéro TNT/DPD — pas pour
+  // "Non sécurisé", du texte libre historique ("à programmer", "tnt" tapé
+  // en toutes lettres...) qui ouvrirait 17TRACK avec une requête sans sens.
+  btn.classList.toggle("hidden", !isNumericTrackingValue(value) || !buildTrackingUrl(value));
 }
 
 // Le backend efface silencieusement received_date si le statut n'est pas

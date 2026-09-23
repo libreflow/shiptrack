@@ -14,6 +14,13 @@
   --menu-hover: #f0f1f3;
   --overlay-bg: #1f2430;
   --warning-text: #b45309; /* contraste WCAG AA vérifié : 5.02:1 sur --card clair */
+  /* Indique explicitement au navigateur/WebView2 le thème courant des couleurs
+     CUSTOM ci-dessus, pour que ses widgets NATIFS (scrollbars, <dialog>,
+     contrôles de formulaire non stylés) suivent le même thème au lieu de
+     retomber sur leurs couleurs UA par défaut (typiquement claires) — c'est
+     ce qui rendait le texte des <dialog> illisible en mode sombre : le fond
+     du dialog restait blanc (UA) alors que le texte utilisait --text sombre. */
+  color-scheme: light;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -36,6 +43,7 @@
     --menu-hover: #262b34;
     --overlay-bg: #0c0e12;
     --warning-text: #fb923c; /* contraste WCAG AA vérifié : 7.21:1 sur --card sombre */
+    color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
@@ -54,6 +62,10 @@
   --menu-hover: #262b34;
   --overlay-bg: #0c0e12;
   --warning-text: #fb923c;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -565,6 +577,13 @@ dialog {
   padding: 0;
   width: 480px;
   max-width: 90vw;
+  /* Sans ça, le <dialog> natif retombe sur un fond blanc (UA) tandis que ses
+     enfants (input/label/textarea) utilisent var(--text) pensé pour un fond
+     sombre : contraste mesuré ~1.2:1 en mode sombre, texte quasi invisible.
+     color-scheme (ci-dessus dans :root) aide mais ne garantit pas seul le
+     fond du dialog lui-même sur tous les moteurs — on le fixe explicitement. */
+  background: var(--card);
+  color: var(--text);
 }
 dialog::backdrop { background: rgba(0,0,0,0.4); }
 

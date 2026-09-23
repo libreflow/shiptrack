@@ -198,6 +198,27 @@ function markFieldInvalid(inputEl) {
 }
 
 /**
+ * Désactive un bouton et remplace son texte par un indicateur "⏳ …" pendant
+ * l'exécution de `fn`, puis restaure l'état d'origine dans tous les cas
+ * (succès ou erreur) — utilisé pour les opérations qui peuvent prendre plus
+ * d'une fraction de seconde (export/import Excel sur un gros volume) : sans
+ * ça, rien à l'écran n'indique qu'un clic a été pris en compte, au risque
+ * que l'utilisateur reclique plusieurs fois en pensant que ça n'a pas marché.
+ */
+async function withLoading(button, loadingLabel, fn) {
+  const originalLabel = button.textContent;
+  const originalDisabled = button.disabled;
+  button.disabled = true;
+  button.textContent = `⏳ ${loadingLabel}`;
+  try {
+    return await fn();
+  } finally {
+    button.disabled = originalDisabled;
+    button.textContent = originalLabel;
+  }
+}
+
+/**
  * Remplace window.confirm() par un <dialog> thémé cohérent avec le reste de
  * l'app (confirm() natif est non thémé, bloquant façon navigateur, et casse
  * la cohérence visuelle dark/light). Retourne une Promise<boolean> comme
@@ -371,7 +392,16 @@ function shipmentRowHtml(s) {
           ? `<button type="button" class="tracking-link-btn" data-track-id="${s.id}" title="Suivre ce colis (17TRACK)">📦</button>`
           : ""
       }</td>`
-    : `<td data-field="tracking_number" class="tracking-empty" title="Double-clic pour renseigner le n° de suivi">À éditer</td>`;
+    : `<td data-field="tracking_number" class="cell-empty-hint" title="Double-clic pour renseigner le n° de suivi">À éditer</td>`;
+  // Même traitement visuel que le n° de suivi vide ("À éditer") : un champ
+  // texte vide n'affichait rien du tout auparavant, se confondant avec une
+  // cellule effectivement chargée mais vide par erreur de rendu. 78% des
+  // lignes réelles n'ont pas de destinataire renseigné (donnée observée en
+  // base) — ce n'est pas anormal pour un petit colis, mais ça doit rester
+  // visuellement une INVITATION à compléter plutôt qu'un vide silencieux.
+  const recipientCell = s.recipient
+    ? `<td data-field="recipient" title="${escapeHtml(s.recipient)}">${escapeHtml(s.recipient)}</td>`
+    : `<td data-field="recipient" class="cell-empty-hint" title="Double-clic pour renseigner le destinataire">À renseigner</td>`;
   return `
     <tr data-id="${s.id}">
       <td><input type="checkbox" class="row-checkbox" data-select-id="${s.id}" ${checked} /></td>
@@ -380,7 +410,7 @@ function shipmentRowHtml(s) {
       <td class="material-cell" data-field="material" title="${escapeHtml(s.material)}">${escapeHtml(s.material)}</td>
       ${trackingCell}
       ${carrierCell}
-      ${cell("recipient", s.recipient)}
+      ${recipientCell}
       ${dateCell("expected_date", s.expected_date)}
       ${dateCell("received_date", s.received_date)}
       <td class="row-edit-hint" title="Cliquer la ligne pour tout modifier">✎</td>
@@ -725,6 +755,12 @@ function renderBulkBar() {
   const count = selectedIds.size;
   if (count === 0) {
     bar.classList.add("hidden");
+    // Repart de zéro à la prochaine sélection : sans ça, un ancien texte tapé
+    // dans "Destinataire" ou une valeur choisie dans "Transporteur" restait
+    // affiché (le DOM n'est que masqué, pas recréé), au risque d'être
+    // appliqué par erreur à une toute nouvelle sélection sans rapport.
+    el("bulk-carrier-select").value = "";
+    el("bulk-recipient-input").value = "";
     return;
   }
   bar.classList.remove("hidden");
@@ -780,6 +816,45 @@ async function bulkSetStatus(status) {
       });
     } catch (err) {
       console.error("bulkSetStatus", id, err);
+      failCount++;
+    }
+  }
+
+  showToast(
+    failCount > 0
+      ? `${ids.length - failCount} mise(s) à jour, ${failCount} échec(s)`
+      : `${ids.length} expédition(s) mise(s) à jour`,
+    { error: failCount > 0 }
+  );
+  selectedIds.clear();
+  await loadShipments();
+}
+
+/**
+ * Applique une valeur à un seul champ (carrier ou recipient) sur toute la
+ * sélection en cours — même pattern que bulkSetStatus (confirmation, boucle
+ * séquentielle, toast récap) mais générique pour éviter de dupliquer la
+ * boucle update_shipment pour chaque nouveau champ groupé.
+ */
+async function bulkApplyField(field, value, fieldLabel) {
+  const ids = [...selectedIds];
+  if (ids.length === 0) return;
+  const normalizedValue = value.trim() || null;
+  const displayValue = normalizedValue ?? "(vide)";
+  const ok = await confirmDialog(
+    `Appliquer "${displayValue}" comme ${fieldLabel} à ${ids.length} expédition(s) sélectionnée(s) ?`,
+    { title: `Modifier ${fieldLabel}`, confirmLabel: "Appliquer" }
+  );
+  if (!ok) return;
+
+  let failCount = 0;
+  for (const id of ids) {
+    const s = allShipments.find((x) => x.id === id);
+    if (!s) continue;
+    try {
+      await invoke("update_shipment", { shipment: buildUpdatePayload(s, { [field]: normalizedValue }) });
+    } catch (err) {
+      console.error("bulkApplyField", field, id, err);
       failCount++;
     }
   }
@@ -1322,14 +1397,19 @@ async function deleteShipment() {
   await loadShipments();
 }
 
-async function exportXlsx(shipmentIds = null) {
+async function exportXlsx(shipmentIds = null, triggerButton = null) {
   const path = await save({
     defaultPath: "shiptrack-export.xlsx",
     filters: [{ name: "Excel", extensions: ["xlsx"] }],
   });
   if (!path) return;
+  const doExport = () => safeInvoke("export_shipments_xlsx", { filePath: path, shipmentIds });
   try {
-    await safeInvoke("export_shipments_xlsx", { filePath: path, shipmentIds });
+    if (triggerButton) {
+      await withLoading(triggerButton, "Export en cours…", doExport);
+    } else {
+      await doExport();
+    }
   } catch {
     return;
   }
@@ -1370,12 +1450,13 @@ async function confirmImport(e) {
   const sheetName = el("import-sheet-select").value;
   if (!pendingImportPath || !sheetName) return;
 
-  el("btn-import-confirm").disabled = true;
   try {
-    const result = await safeInvoke("import_excel_sheet", {
-      filePath: pendingImportPath,
-      sheetName,
-    });
+    const result = await withLoading(el("btn-import-confirm"), "Import en cours…", () =>
+      safeInvoke("import_excel_sheet", {
+        filePath: pendingImportPath,
+        sheetName,
+      })
+    );
     el("import-dialog").close();
     const parts = [`${result.inserted} expédition(s) importée(s)`];
     if (result.skipped > 0) parts.push(`${result.skipped} ligne(s) vide(s) ignorée(s)`);
@@ -1385,7 +1466,6 @@ async function confirmImport(e) {
   } catch {
     // erreur déjà affichée par safeInvoke
   } finally {
-    el("btn-import-confirm").disabled = false;
     pendingImportPath = null;
   }
 }
@@ -1408,19 +1488,20 @@ window.addEventListener("DOMContentLoaded", () => {
   el("btn-delete").addEventListener("click", deleteShipment);
   el("shipment-form").addEventListener("submit", saveShipment);
 
-  // Menu export : tout / vue filtrée
-  el("btn-export").addEventListener("click", (e) => {
+  // Menu Fichier : export (tout / vue filtrée) et import, regroupés en un
+  // seul menu déroulant plutôt que 2 boutons séparés dans la topbar.
+  el("btn-file-menu").addEventListener("click", (e) => {
     e.stopPropagation();
-    el("export-menu").classList.toggle("hidden");
+    el("file-menu").classList.toggle("hidden");
   });
-  document.addEventListener("click", () => el("export-menu").classList.add("hidden"));
+  document.addEventListener("click", () => el("file-menu").classList.add("hidden"));
   el("export-all").addEventListener("click", () => {
-    el("export-menu").classList.add("hidden");
-    exportXlsx(null);
+    el("file-menu").classList.add("hidden");
+    exportXlsx(null, el("btn-file-menu"));
   });
   el("export-filtered").addEventListener("click", () => {
-    el("export-menu").classList.add("hidden");
-    exportXlsx(lastFilteredIds);
+    el("file-menu").classList.add("hidden");
+    exportXlsx(lastFilteredIds, el("btn-file-menu"));
   });
 
   el("q-tracking").addEventListener("input", updateQuickDuplicateWarning);
@@ -1507,13 +1588,22 @@ window.addEventListener("DOMContentLoaded", () => {
   el("bulk-delete").addEventListener("click", bulkDelete);
   el("bulk-export").addEventListener("click", () => {
     if (selectedIds.size === 0) return;
-    exportXlsx([...selectedIds]);
+    exportXlsx([...selectedIds], el("bulk-export"));
   });
   document.querySelectorAll("[data-bulk-status]").forEach((btn) => {
     btn.addEventListener("click", () => bulkSetStatus(btn.dataset.bulkStatus));
   });
+  el("bulk-carrier-apply").addEventListener("click", () => {
+    bulkApplyField("carrier", el("bulk-carrier-select").value, "Transporteur");
+  });
+  el("bulk-recipient-apply").addEventListener("click", () => {
+    bulkApplyField("recipient", el("bulk-recipient-input").value, "Destinataire");
+  });
 
-  el("btn-import").addEventListener("click", startImport);
+  el("btn-import").addEventListener("click", () => {
+    el("file-menu").classList.add("hidden");
+    startImport();
+  });
   el("btn-import-cancel").addEventListener("click", () => {
     el("import-dialog").close();
     pendingImportPath = null;

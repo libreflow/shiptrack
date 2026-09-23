@@ -181,6 +181,7 @@ body {
   color: var(--text);
 }
 .export-menu-item:hover { background: var(--menu-hover); }
+.export-menu-separator { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* Barre de compteurs par statut */
 .stats-bar {
@@ -323,8 +324,26 @@ body {
 .bulk-count { font-weight: 600; font-size: 13px; white-space: nowrap; }
 .bulk-actions { display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap; }
 .bulk-label { font-size: 12px; color: #a3a8b5; margin-right: 2px; }
+.bulk-label-sep { margin-left: 10px; }
 .bulk-bar .btn-secondary { background: rgba(255,255,255,0.1); color: white; border-color: rgba(255,255,255,0.2); }
 .bulk-bar .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+/* .bulk-bar a un fond sombre FIXE (--overlay-bg) quel que soit le thème actif
+   — contrairement au reste de l'app, ces couleurs ne doivent PAS suivre
+   var(--card)/var(--text) (qui basculeraient clair en thème clair et
+   casseraient le contraste sur ce fond toujours sombre). */
+.bulk-select, .bulk-input {
+  background: rgba(255,255,255,0.1);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.bulk-input { width: 140px; }
+.bulk-select option { color: #1f2430; } /* liste déroulante native : fond clair par défaut, texte lisible */
+.bulk-select:focus, .bulk-input:focus { outline: 1px solid rgba(255,255,255,0.5); outline-offset: -1px; }
+.bulk-input::placeholder { color: rgba(255,255,255,0.5); }
 
 .checkbox-col { width: 32px; text-align: center !important; }
 .row-checkbox { cursor: pointer; }
@@ -414,7 +433,7 @@ main {
   background: var(--menu-hover);
   text-decoration: underline;
 }
-.tracking-empty {
+.cell-empty-hint {
   color: var(--text-muted);
   font-style: italic;
   cursor: text;

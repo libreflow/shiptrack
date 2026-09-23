@@ -57,7 +57,7 @@ function clearTrackedListeners() {
   trackedListeners = [];
 }
 
-async function loadApp({ shipments = [], presetLocalStorage = {} } = {}) {
+async function loadApp({ shipments = [], presetLocalStorage = {}, dialogSave = vi.fn(), dialogOpen = vi.fn() } = {}) {
   clearTrackedListeners();
   // Repart d'un DOM propre à chaque test à partir du vrai fichier index.html.
   document.body.innerHTML = BODY_HTML;
@@ -74,7 +74,7 @@ async function loadApp({ shipments = [], presetLocalStorage = {} } = {}) {
 
   window.__TAURI__ = {
     core: { invoke: invokeMock },
-    dialog: { save: vi.fn(), open: vi.fn() },
+    dialog: { save: dialogSave, open: dialogOpen },
     opener: { openUrl: vi.fn(async () => {}) },
     clipboardManager: { writeText: vi.fn(async () => {}) },
   };
@@ -363,6 +363,81 @@ describe("main.js — sélection multiple et actions groupées", () => {
 
     expect(document.getElementById("toast").classList.contains("error")).toBe(false);
     expect(document.getElementById("toast-message").textContent).toBe("2 expédition(s) mise(s) à jour");
+  });
+
+  it("bulk transporteur applique la valeur choisie à toute la sélection après confirmation", async () => {
+    await loadApp({
+      shipments: [
+        makeShipment({ id: "id-1", carrier: null }),
+        makeShipment({ id: "id-2", carrier: "DPD" }),
+      ],
+    });
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    document.getElementById("bulk-carrier-select").value = "TNT";
+    document.getElementById("bulk-carrier-apply").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const carrierUpdates = invokeMock.mock.calls.filter(
+      (c) => c[0] === "update_shipment" && c[1].shipment.carrier === "TNT"
+    );
+    expect(carrierUpdates.length).toBe(2);
+    expect(document.getElementById("toast-message").textContent).toBe("2 expédition(s) mise(s) à jour");
+  });
+
+  it("bulk destinataire applique le texte saisi à toute la sélection après confirmation", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1", recipient: null })] });
+    document.querySelectorAll("[data-select-id]").forEach((cb) => {
+      cb.checked = true;
+      cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    document.getElementById("bulk-recipient-input").value = "Accueil RH";
+    document.getElementById("bulk-recipient-apply").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "update_shipment",
+      expect.objectContaining({ shipment: expect.objectContaining({ recipient: "Accueil RH" }) })
+    );
+  });
+
+  it("bulk transporteur/destinataire n'appelle rien tant qu'aucune ligne n'est sélectionnée", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1" })] });
+    document.getElementById("bulk-carrier-select").value = "TNT";
+    document.getElementById("bulk-carrier-apply").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("confirm-dialog").open).toBe(false);
+    const carrierUpdates = invokeMock.mock.calls.filter((c) => c[0] === "update_shipment");
+    expect(carrierUpdates.length).toBe(0);
+  });
+
+  // Les champs bulk ne doivent pas conserver une ancienne valeur d'une
+  // sélection précédente : le DOM est juste masqué, pas recréé, donc sans ce
+  // reset explicite un texte tapé plus tôt pourrait être appliqué par erreur
+  // à une toute nouvelle sélection sans rapport.
+  it("réinitialise les champs bulk transporteur/destinataire quand la sélection se vide", async () => {
+    await loadApp({ shipments: [makeShipment({ id: "id-1" })] });
+    const cb = document.querySelector("[data-select-id]");
+    cb.checked = true;
+    cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    document.getElementById("bulk-carrier-select").value = "TNT";
+    document.getElementById("bulk-recipient-input").value = "texte résiduel";
+
+    cb.checked = false;
+    cb.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+    expect(document.getElementById("bulk-carrier-select").value).toBe("");
+    expect(document.getElementById("bulk-recipient-input").value).toBe("");
   });
 });
 
@@ -1143,6 +1218,26 @@ describe("main.js — validation du n° de suivi (texte libre interdit)", () => 
     expect(cell.textContent).toBe("À éditer");
   });
 
+  // Point d'audit ergonomique : un destinataire vide n'affichait RIEN (cellule
+  // visuellement identique à une cellule mal chargée), alors que le n° de
+  // suivi vide affiche "À éditer" en italique gris — incohérence entre deux
+  // champs également optionnels. 78% des lignes réelles n'ont pas de
+  // destinataire (donnée observée en base), donc ce style doit rester
+  // discret/non alarmant, juste une invitation à compléter si besoin.
+  it("affiche 'À renseigner' en italique pour une ligne sans destinataire", async () => {
+    await loadApp({ shipments: [makeShipment({ recipient: null })] });
+    const cell = document.querySelector('[data-field="recipient"]');
+    expect(cell.textContent).toBe("À renseigner");
+    expect(cell.classList.contains("cell-empty-hint")).toBe(true);
+  });
+
+  it("affiche le destinataire tel quel sans style d'invitation quand il est renseigné", async () => {
+    await loadApp({ shipments: [makeShipment({ recipient: "Jean Dupont" })] });
+    const cell = document.querySelector('[data-field="recipient"]');
+    expect(cell.textContent).toBe("Jean Dupont");
+    expect(cell.classList.contains("cell-empty-hint")).toBe(false);
+  });
+
   it("la saisie rapide refuse un texte libre en n° de suivi", async () => {
     await loadApp({ shipments: [] });
     document.getElementById("q-supplier").value = "Voiron";
@@ -1510,5 +1605,73 @@ describe("main.js — Ctrl+Entrée valide la saisie rapide en gardant les champs
     expect(document.getElementById("q-supplier").value).toBe("");
     expect(document.getElementById("q-material").value).toBe("");
     expect(document.activeElement.id).toBe("q-supplier");
+  });
+});
+
+describe("main.js — indicateur de chargement sur les opérations longues", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Régression : ni exportXlsx ni confirmImport n'indiquaient visuellement
+  // qu'une opération était en cours (au mieux un `disabled` silencieux sur
+  // l'import, rien du tout sur l'export) — rien à l'écran ne distinguait un
+  // clic pris en compte d'un clic ignoré sur un gros volume de données.
+  it("export : le bouton Fichier affiche un indicateur de chargement pendant l'export puis revient à l'état normal", async () => {
+    let resolveInvoke;
+    const invokeImpl = (cmd) =>
+      new Promise((resolve) => {
+        if (cmd === "export_shipments_xlsx") {
+          resolveInvoke = () => resolve(null);
+        } else {
+          resolve(cmd === "list_shipments" ? [makeShipment()] : null);
+        }
+      });
+    await loadApp({ shipments: [makeShipment()], dialogSave: vi.fn(async () => "C:/export.xlsx") });
+    invokeMock.mockImplementation(invokeImpl);
+
+    const fileMenuBtn = document.getElementById("btn-file-menu");
+    const originalLabel = fileMenuBtn.textContent;
+    fileMenuBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("export-all").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(fileMenuBtn.disabled).toBe(true);
+    expect(fileMenuBtn.textContent).toContain("Export en cours");
+
+    resolveInvoke();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(fileMenuBtn.disabled).toBe(false);
+    expect(fileMenuBtn.textContent).toBe(originalLabel);
+  });
+
+  it("import : le bouton Importer est désactivé avec un libellé de chargement pendant l'import", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/import.xlsx") });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "list_excel_sheets") return ["Feuille1"];
+      if (cmd === "import_excel_sheet")
+        return new Promise((resolve) => setTimeout(() => resolve({ inserted: 1, skipped: 0, duplicates: 0 }), 20));
+      return null;
+    });
+
+    document.getElementById("btn-file-menu").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById("import-dialog").open).toBe(true);
+
+    const confirmBtn = document.getElementById("btn-import-confirm");
+    const originalLabel = confirmBtn.textContent;
+    document.getElementById("import-form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(confirmBtn.disabled).toBe(true);
+    expect(confirmBtn.textContent).toContain("Import en cours");
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(confirmBtn.disabled).toBe(false);
+    expect(confirmBtn.textContent).toBe(originalLabel);
   });
 });

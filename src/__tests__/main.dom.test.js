@@ -1676,119 +1676,220 @@ describe("main.js — indicateur de chargement sur les opérations longues", () 
   });
 });
 
-describe("main.js — import PDF (bon de transport)", () => {
+describe("main.js — import PDF en lot (page dédiée)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  // Régression : le bouton doit déclencher un sélecteur de fichier PDF, puis
-  // appeler parse_shipping_note_pdf et pré-remplir la ligne de saisie rapide
-  // avec ce qui a été extrait.
-  it("pré-remplit Agence/N° suivi/Transporteur/Destinataire/Date depuis le PDF", async () => {
-    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon.pdf") });
+  function parsedOk(overrides = {}) {
+    return {
+      file_name: "bon.pdf",
+      file_path: "C:/bons/bon.pdf",
+      error: null,
+      parsed: {
+        carrier: "TNT",
+        tracking_number: "2417777334853446",
+        agency: "Agence Adéquat Perigueux",
+        recipient: "MAZEAU  Renaud",
+        expected_date: "2026-09-08",
+        warnings: [],
+        ...overrides,
+      },
+    };
+  }
+
+  it("le bouton du menu Fichier bascule vers la page, Retour revient au tableau", async () => {
+    await loadApp({ shipments: [] });
+
+    document.getElementById("btn-file-menu").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-pdf-batch").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    expect(document.getElementById("pdf-batch-page").classList.contains("hidden")).toBe(false);
+    expect(document.querySelector("main").classList.contains("hidden")).toBe(true);
+
+    document.getElementById("btn-pdf-batch-back").dispatchEvent(new window.Event("click", { bubbles: true }));
+
+    expect(document.getElementById("pdf-batch-page").classList.contains("hidden")).toBe(true);
+    expect(document.querySelector("main").classList.contains("hidden")).toBe(false);
+  });
+
+  it("le bouton PDF solo de l'ancienne saisie rapide a bien été retiré", async () => {
+    await loadApp({ shipments: [] });
+    expect(document.getElementById("q-pdf-import")).toBeNull();
+  });
+
+  it("sélectionner des PDF appelle parse_shipping_notes_pdfs (lot) et affiche une ligne par fichier", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf", "C:/bons/b.pdf"]) });
     invokeMock.mockImplementation(async (cmd) => {
       if (cmd === "list_shipments") return [];
-      if (cmd === "parse_shipping_note_pdf")
-        return {
-          carrier: "TNT",
-          tracking_number: "2417777334853446",
-          agency: "Agence Adéquat Perigueux",
-          recipient: "MAZEAU  Renaud",
-          expected_date: "2026-09-08",
-          warnings: [],
-        };
+      if (cmd === "parse_shipping_notes_pdfs")
+        return [parsedOk({ }), { file_name: "b.pdf", file_path: "C:/bons/b.pdf", error: "PDF illisible", parsed: null }];
       return null;
     });
 
-    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(invokeMock).toHaveBeenCalledWith("parse_shipping_note_pdf", { filePath: "C:/bon.pdf" });
-    expect(document.getElementById("q-supplier").value).toBe("Agence Adéquat Perigueux");
-    expect(document.getElementById("q-tracking").value).toBe("2417777334853446");
-    expect(document.getElementById("q-carrier").value).toBe("TNT");
-    expect(document.getElementById("q-recipient").value).toBe("MAZEAU  Renaud");
-    expect(document.getElementById("q-expected").value).toBe("2026-09-08");
-    // Le Matériel n'est jamais fourni par un bon de transport (non imprimé
-    // par le transporteur) : doit rester vide pour saisie manuelle.
-    expect(document.getElementById("q-material").value).toBe("");
+    expect(invokeMock).toHaveBeenCalledWith("parse_shipping_notes_pdfs", { filePaths: ["C:/bons/a.pdf", "C:/bons/b.pdf"] });
+    const rows = document.querySelectorAll("#pdf-batch-body tr");
+    expect(rows.length).toBe(2);
+    expect(document.getElementById("pdf-batch-summary").textContent).toContain("2 fichier(s)");
+    expect(document.getElementById("pdf-batch-summary").textContent).toContain("1 prêt(s)");
+    expect(document.getElementById("pdf-batch-summary").textContent).toContain("1 en erreur");
   });
 
-  it("n'écrase pas un champ déjà rempli manuellement avant l'import PDF", async () => {
-    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon.pdf") });
-    invokeMock.mockImplementation(async (cmd) => {
-      if (cmd === "list_shipments") return [];
-      if (cmd === "parse_shipping_note_pdf")
-        return {
-          carrier: "TNT",
-          tracking_number: "2417777334853446",
-          agency: "Agence Adéquat Perigueux",
-          recipient: null,
-          expected_date: "2026-09-08",
-          warnings: [],
-        };
-      return null;
-    });
-
-    document.getElementById("q-supplier").value = "Agence saisie à la main";
-    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(document.getElementById("q-supplier").value).toBe("Agence saisie à la main");
-    expect(document.getElementById("q-tracking").value).toBe("2417777334853446");
-  });
-
-  it("affiche les avertissements du backend sans planter quand un champ est introuvable", async () => {
-    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon-dpd.pdf") });
-    invokeMock.mockImplementation(async (cmd) => {
-      if (cmd === "list_shipments") return [];
-      if (cmd === "parse_shipping_note_pdf")
-        return {
-          carrier: null,
-          tracking_number: null,
-          agency: null,
-          recipient: null,
-          expected_date: null,
-          warnings: ["Format non reconnu (seuls les bons TNT sont supportés actuellement) — remplissez manuellement."],
-        };
-      return null;
-    });
-
-    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(document.getElementById("q-supplier").value).toBe("");
-    expect(document.querySelector(".toast")?.textContent || document.body.textContent).toContain("Format non reconnu");
-  });
-
-  it("n'appelle pas le backend si l'utilisateur annule la sélection de fichier", async () => {
+  it("n'appelle pas le backend si l'utilisateur annule la sélection de fichiers", async () => {
     await loadApp({ shipments: [], dialogOpen: vi.fn(async () => null) });
     invokeMock.mockImplementation(async (cmd) => (cmd === "list_shipments" ? [] : null));
 
-    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(invokeMock).not.toHaveBeenCalledWith("parse_shipping_note_pdf", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("parse_shipping_notes_pdfs", expect.anything());
   });
 
-  // Régression : q-expected est déjà pré-rempli avec la date du jour par
-  // resetQuickRow() (valeur par défaut, pas un choix utilisateur) — un
-  // fillIfEmpty naïf ne l'écraserait donc jamais, rendant l'auto-remplissage
-  // de la date silencieusement inopérant en pratique.
-  it("écrase la date par défaut (aujourd'hui) avec celle extraite du PDF", async () => {
-    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => "C:/bon.pdf") });
+  it("le champ Matériel de l'aperçu est vide (jamais extrait), le champ Agence est pré-rempli", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
     invokeMock.mockImplementation(async (cmd) => {
       if (cmd === "list_shipments") return [];
-      if (cmd === "parse_shipping_note_pdf")
-        return { carrier: "TNT", tracking_number: null, agency: null, recipient: null, expected_date: "2026-09-08", warnings: [] };
+      if (cmd === "parse_shipping_notes_pdfs") return [parsedOk()];
       return null;
     });
 
-    expect(document.getElementById("q-expected").value).not.toBe("");
-    document.getElementById("q-pdf-import").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(document.getElementById("q-expected").value).toBe("2026-09-08");
+    expect(document.querySelector('[data-row-field="material"]').value).toBe("");
+    expect(document.querySelector('[data-row-field="supplier"]').value).toBe("Agence Adéquat Perigueux");
+    expect(document.querySelector('[data-row-field="tracking_number"]').value).toBe("2417777334853446");
+  });
+
+  it("bouton Créer désactivé quand aucune ligne prête, activé sinon", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_notes_pdfs") return [{ file_name: "a.pdf", file_path: "C:/bons/a.pdf", error: "boom", parsed: null }];
+      return null;
+    });
+
+    expect(document.getElementById("btn-pdf-batch-create").disabled).toBe(true);
+
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.getElementById("btn-pdf-batch-create").disabled).toBe(true); // toujours : seule ligne est en erreur
+  });
+
+  it("décocher une ligne l'exclut de la création (bouton se désactive si c'était la seule)", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_notes_pdfs") return [parsedOk()];
+      return null;
+    });
+
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById("btn-pdf-batch-create").disabled).toBe(false);
+
+    document.querySelector(".pdf-batch-row-checkbox").click();
+
+    expect(document.getElementById("btn-pdf-batch-create").disabled).toBe(true);
+  });
+
+  it("corriger l'Agence à la main sur une ligne sans extraction la rend créable", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_notes_pdfs") return [parsedOk({ agency: null })];
+      return null;
+    });
+
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.getElementById("pdf-batch-summary").textContent).toContain("1 sans agence");
+    expect(document.getElementById("btn-pdf-batch-create").disabled).toBe(true);
+
+    const supplierInput = document.querySelector('[data-row-field="supplier"]');
+    supplierInput.value = "Agence Adéquat Lyon";
+    supplierInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    expect(document.getElementById("pdf-batch-summary").textContent).not.toContain("sans agence");
+    expect(document.getElementById("btn-pdf-batch-create").disabled).toBe(false);
+  });
+
+  it("Créer les expéditions demande confirmation, crée chaque ligne prête en statut Expédié, puis revient au tableau", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_notes_pdfs") return [parsedOk()];
+      if (cmd === "create_shipment") return makeShipment({ id: "created-1", carrier: "TNT" });
+      if (cmd === "update_shipment") return null;
+      return null;
+    });
+
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.querySelector('[data-row-field="material"]').value = "Écran";
+    document.querySelector('[data-row-field="material"]').dispatchEvent(new window.Event("input", { bubbles: true }));
+
+    document.getElementById("btn-pdf-batch-create").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const createCall = invokeMock.mock.calls.find((c) => c[0] === "create_shipment");
+    expect(createCall[1].shipment.supplier).toBe("Agence Adéquat Perigueux");
+    expect(createCall[1].shipment.material).toBe("Écran");
+    const updateCall = invokeMock.mock.calls.find((c) => c[0] === "update_shipment");
+    expect(updateCall[1].shipment.status).toBe("shipped");
+    expect(document.getElementById("pdf-batch-page").classList.contains("hidden")).toBe(true);
+  });
+
+  it("Matériel laissé vide -> créé avec le placeholder 'Non renseigné'", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_notes_pdfs") return [parsedOk()];
+      if (cmd === "create_shipment") return makeShipment({ id: "created-1", carrier: "TNT" });
+      if (cmd === "update_shipment") return null;
+      return null;
+    });
+
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    document.getElementById("btn-pdf-batch-create").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const createCall = invokeMock.mock.calls.find((c) => c[0] === "create_shipment");
+    expect(createCall[1].shipment.material).toBe("Non renseigné");
+  });
+
+  it("annuler la confirmation ne crée rien", async () => {
+    await loadApp({ shipments: [], dialogOpen: vi.fn(async () => ["C:/bons/a.pdf"]) });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "parse_shipping_notes_pdfs") return [parsedOk()];
+      return null;
+    });
+
+    document.getElementById("btn-file-menu").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-pdf-batch").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-pdf-batch-select").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    document.getElementById("btn-pdf-batch-create").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-cancel").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("create_shipment", expect.anything());
+    expect(document.getElementById("pdf-batch-page").classList.contains("hidden")).toBe(false);
   });
 });
 

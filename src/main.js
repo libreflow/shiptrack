@@ -6,6 +6,7 @@ import { normalizeAccents, normalizeAgainstExisting, buildShipmentIndex, normali
 import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth, formatDateFr } from "./months.js";
 import { sortShipments, filterShipments } from "./shipments.js";
 import { buildTrackingUrl, isValidTrackingValue, inferCarrier, isNumericTrackingValue } from "./tracking.js";
+import { DEFAULT_MATERIAL_PLACEHOLDER, batchResultsToRows, includedRows, rowToNewShipmentPayload, summarizeRows } from "./pdf_batch.js";
 
 const STATUS_LABELS = {
   ordered: "Commandé",
@@ -1294,7 +1295,6 @@ function setupQuickRowKeyboard() {
   });
 
   el("q-submit").addEventListener("click", submitQuickRow);
-  el("q-pdf-import").addEventListener("click", startPdfImport);
 }
 
 /* ---------- Colonnes redimensionnables ---------- */
@@ -1525,55 +1525,172 @@ async function exportXlsx(shipmentIds = null, triggerButton = null) {
   showToast("Export terminé : " + path);
 }
 
-/* ---------- Import PDF (bon de transport) ---------- */
+/* ---------- Import PDF en lot (page dédiée) ---------- */
 
-/**
- * Pré-remplit la ligne de saisie rapide à partir d'un bon de transport PDF
- * (TNT uniquement pour l'instant — voir pdf_import.rs). N'écrase jamais un
- * champ déjà rempli manuellement par l'utilisateur : on part du principe
- * qu'une valeur déjà tapée est intentionnelle et plus fiable qu'une
- * extraction automatique. Le Matériel n'est jamais fourni par le PDF (un
- * bordereau transporteur n'imprime pas le contenu du colis) — reste donc
- * toujours à la charge de l'utilisateur.
- */
-async function startPdfImport() {
-  const path = await open({
-    multiple: false,
+// État de la page — un tableau de "lignes" éditables (voir pdf_batch.js),
+// vidé à chaque nouvelle sélection de fichiers. Volontairement en dehors de
+// allShipments : ce ne sont pas encore des expéditions tant qu'elles n'ont
+// pas été créées via btn-pdf-batch-create.
+let pdfBatchRows = [];
+
+function showPdfBatchPage() {
+  el("file-menu").classList.add("hidden");
+  el("pdf-batch-page").classList.remove("hidden");
+  el("main-table-chrome").classList.add("hidden");
+  document.querySelector("main").classList.add("hidden");
+}
+
+function hidePdfBatchPage() {
+  el("pdf-batch-page").classList.add("hidden");
+  el("main-table-chrome").classList.remove("hidden");
+  document.querySelector("main").classList.remove("hidden");
+}
+
+async function selectPdfBatchFiles() {
+  const paths = await open({
+    multiple: true,
     filters: [{ name: "PDF", extensions: ["pdf"] }],
   });
-  if (!path) return;
+  if (!paths || paths.length === 0) return;
 
-  let parsed;
+  let results;
   try {
-    parsed = await withLoading(el("q-pdf-import"), "Lecture…", () => safeInvoke("parse_shipping_note_pdf", { filePath: path }));
+    results = await withLoading(el("btn-pdf-batch-select"), "Lecture…", () =>
+      safeInvoke("parse_shipping_notes_pdfs", { filePaths: paths })
+    );
   } catch {
     return; // erreur déjà affichée par safeInvoke
   }
 
-  const fillIfEmpty = (id, value) => {
-    const field = el(id);
-    if (value && !field.value.trim()) field.value = value;
-  };
-  fillIfEmpty("q-supplier", parsed.agency);
-  fillIfEmpty("q-tracking", parsed.tracking_number);
-  fillIfEmpty("q-carrier", parsed.carrier);
-  fillIfEmpty("q-recipient", parsed.recipient);
-  // fillIfEmpty ne déclenche pas d'événement "change" sur q-carrier : sans cet
-  // appel explicite, le select Ramassage resterait désactivé après un import
-  // PDF qui vient de remplir Transporteur à "TNT".
-  updateQuickPickupOptionAvailability();
-  // q-expected a toujours une valeur par défaut ("aujourd'hui", posée par
-  // resetQuickRow) qui ne reflète pas un choix explicite de l'utilisateur —
-  // contrairement aux autres champs, on écrase donc systématiquement dès
-  // qu'une date fiable a été extraite du PDF.
-  if (parsed.expected_date) el("q-expected").value = parsed.expected_date;
+  pdfBatchRows = batchResultsToRows(results);
+  renderPdfBatchTable();
+}
 
-  if (parsed.warnings.length > 0) {
-    showToast(parsed.warnings.join(" "), { error: true });
+function renderPdfBatchTable() {
+  const body = el("pdf-batch-body");
+  if (pdfBatchRows.length === 0) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">Aucun fichier sélectionné.</td></tr>`;
   } else {
-    showToast("Champs pré-remplis depuis le PDF — vérifiez avant d'ajouter");
+    body.innerHTML = pdfBatchRows
+      .map((row, i) => {
+        if (row.error) {
+          return `
+            <tr class="pdf-batch-row-error">
+              <td></td>
+              <td title="${escapeHtml(row.file_name)}">${escapeHtml(row.file_name)}</td>
+              <td colspan="6" class="pdf-batch-error-message">⚠ ${escapeHtml(row.error)}</td>
+            </tr>`;
+        }
+        const missingSupplier = row.included && !row.supplier.trim();
+        const warningTitle = row.warnings.length > 0 ? escapeHtml(row.warnings.join(" ")) : "";
+        return `
+          <tr class="${missingSupplier ? "pdf-batch-row-missing" : ""}">
+            <td><input type="checkbox" class="pdf-batch-row-checkbox" data-row-index="${i}" ${row.included ? "checked" : ""} /></td>
+            <td title="${escapeHtml(row.file_name)}${warningTitle ? " — " + warningTitle : ""}">${escapeHtml(row.file_name)}${row.warnings.length > 0 ? " ⚠" : ""}</td>
+            <td><input type="text" data-row-index="${i}" data-row-field="supplier" list="agences-list" value="${escapeHtml(row.supplier)}" placeholder="Agence (requis)" /></td>
+            <td><input type="text" data-row-index="${i}" data-row-field="material" list="materials-list" value="${escapeHtml(row.material)}" placeholder="${DEFAULT_MATERIAL_PLACEHOLDER}" /></td>
+            <td><input type="text" data-row-index="${i}" data-row-field="tracking_number" value="${escapeHtml(row.tracking_number)}" /></td>
+            <td>
+              <select data-row-index="${i}" data-row-field="carrier">
+                <option value="" ${row.carrier === "" ? "selected" : ""}>—</option>
+                <option value="TNT" ${row.carrier === "TNT" ? "selected" : ""}>TNT</option>
+                <option value="DPD" ${row.carrier === "DPD" ? "selected" : ""}>DPD</option>
+              </select>
+            </td>
+            <td><input type="text" data-row-index="${i}" data-row-field="recipient" list="recipients-list" value="${escapeHtml(row.recipient)}" /></td>
+            <td><input type="date" data-row-index="${i}" data-row-field="expected_date" value="${escapeHtml(row.expected_date)}" /></td>
+          </tr>`;
+      })
+      .join("");
   }
-  el("q-material").focus();
+  renderPdfBatchSummary();
+}
+
+function renderPdfBatchSummary() {
+  const { total, errors, missingSupplier, excluded, ready } = summarizeRows(pdfBatchRows);
+  const parts = [];
+  if (total > 0) {
+    parts.push(`${total} fichier(s)`);
+    parts.push(`${ready} prêt(s)`);
+    if (errors > 0) parts.push(`${errors} en erreur`);
+    if (missingSupplier > 0) parts.push(`${missingSupplier} sans agence`);
+    if (excluded > 0) parts.push(`${excluded} décoché(s)`);
+  }
+  el("pdf-batch-summary").textContent = parts.join(" · ");
+  el("btn-pdf-batch-create").disabled = ready === 0;
+}
+
+function handlePdfBatchTableInput(e) {
+  const index = e.target.dataset.rowIndex;
+  if (index === undefined) return;
+  const row = pdfBatchRows[Number(index)];
+  if (!row) return;
+
+  if (e.target.classList.contains("pdf-batch-row-checkbox")) {
+    row.included = e.target.checked;
+    renderPdfBatchSummary();
+    return;
+  }
+  const field = e.target.dataset.rowField;
+  if (field) {
+    row[field] = e.target.value;
+    // Champ Agence tapé/corrigé : ré-évalue juste le résumé (compteur "sans
+    // agence") sans reconstruire tout le tableau et perdre le focus courant.
+    if (field === "supplier") renderPdfBatchSummary();
+  }
+}
+
+async function createPdfBatchShipments() {
+  const rows = includedRows(pdfBatchRows);
+  if (rows.length === 0) return;
+
+  const tech = currentTechnician();
+  const confirmed = await confirmDialog(
+    `Créer ${rows.length} expédition(s) à partir des bons PDF sélectionnés ?`,
+    { title: "Créer les expéditions", confirmLabel: "Créer" }
+  );
+  if (!confirmed) return;
+
+  let successCount = 0;
+  const failures = [];
+  for (const row of rows) {
+    try {
+      const payload = rowToNewShipmentPayload(row, { technician: tech });
+      const created = await invoke("create_shipment", { shipment: payload });
+      // Même défaut que la saisie rapide : toute nouvelle expédition démarre
+      // "Expédié" (le backend crée avec "Commandé"), voir submitQuickRow.
+      await invoke("update_shipment", {
+        shipment: {
+          id: created.id,
+          supplier: created.supplier,
+          tracking_number: created.tracking_number,
+          carrier: created.carrier,
+          recipient: created.recipient,
+          material: created.material,
+          status: "shipped",
+          expected_date: created.expected_date,
+          received_date: null,
+          notes: created.notes,
+          pickup_option: created.pickup_option,
+        },
+      });
+      successCount++;
+    } catch (err) {
+      console.error("createPdfBatchShipments", row.file_name, err);
+      failures.push(row.file_name);
+    }
+  }
+
+  if (failures.length > 0) {
+    showToast(`${successCount} expédition(s) créée(s), échec pour : ${failures.join(", ")}`, { error: true });
+  } else {
+    showToast(`${successCount} expédition(s) créée(s)`);
+  }
+
+  pdfBatchRows = [];
+  renderPdfBatchTable();
+  await loadShipments();
+  if (failures.length === 0) hidePdfBatchPage();
 }
 
 /* ---------- Import Excel ---------- */
@@ -1885,6 +2002,13 @@ window.addEventListener("DOMContentLoaded", () => {
     pendingImportPath = null;
   });
   el("import-form").addEventListener("submit", confirmImport);
+
+  el("btn-pdf-batch").addEventListener("click", showPdfBatchPage);
+  el("btn-pdf-batch-back").addEventListener("click", hidePdfBatchPage);
+  el("btn-pdf-batch-select").addEventListener("click", selectPdfBatchFiles);
+  el("btn-pdf-batch-create").addEventListener("click", createPdfBatchShipments);
+  el("pdf-batch-body").addEventListener("input", handlePdfBatchTableInput);
+  el("pdf-batch-body").addEventListener("change", handlePdfBatchTableInput);
 
   el("btn-archive").addEventListener("click", () => {
     el("file-menu").classList.add("hidden");

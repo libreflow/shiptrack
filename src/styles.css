@@ -371,6 +371,46 @@ main {
   flex-direction: column;
 }
 
+/* Page plein-écran "Créer des envois depuis des bons PDF" — remplace <main>
+   (voir showPdfBatchPage/hidePdfBatchPage), même conteneur .app donc même
+   comportement de layout général (flex column, hauteur pleine). */
+.pdf-batch-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+.pdf-batch-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pdf-batch-header h2 { margin: 0; font-size: 18px; }
+.pdf-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pdf-batch-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+/* Contrairement à .shipments-table (table-layout: fixed + colgroup dédié
+   pour le redimensionnement custom des colonnes), cette table est une page
+   d'aperçu ponctuelle sans persistance de largeurs — auto suffit. */
+.pdf-batch-table { table-layout: auto; }
+.pdf-batch-table input, .pdf-batch-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.pdf-batch-row-error { border-left: 3px solid var(--danger); }
+.pdf-batch-error-message { color: var(--danger-text); font-size: 13px; }
+.pdf-batch-row-missing input[data-row-field="supplier"] {
+  border-color: var(--danger-text);
+}
+
 .shipments-table {
   width: 100%;
   table-layout: fixed;

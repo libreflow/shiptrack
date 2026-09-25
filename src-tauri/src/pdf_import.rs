@@ -262,6 +262,56 @@ pub fn parse_shipping_note_pdf(file_path: String) -> Result<ParsedShippingNote, 
     Ok(parse_shipping_note(&text))
 }
 
+/// Résultat d'un fichier au sein d'un lot — jamais d'erreur globale : un PDF
+/// illisible/non-TNT ne doit pas empêcher les autres du même lot d'être
+/// traités (voir page "Import PDF (lot)"). Exactement un des deux champs
+/// `parsed`/`error` est renseigné.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct BatchParseResult {
+    pub file_name: String,
+    pub file_path: String,
+    pub parsed: Option<ParsedShippingNote>,
+    pub error: Option<String>,
+}
+
+fn parse_one_for_batch(file_path: &str) -> BatchParseResult {
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file_path)
+        .to_string();
+
+    match pdf_extract::extract_text(file_path) {
+        Ok(text) if !text.trim().is_empty() => BatchParseResult {
+            file_name,
+            file_path: file_path.to_string(),
+            parsed: Some(parse_shipping_note(&text)),
+            error: None,
+        },
+        Ok(_) => BatchParseResult {
+            file_name,
+            file_path: file_path.to_string(),
+            parsed: None,
+            error: Some("Le PDF ne contient aucun texte exploitable (scan image ?).".to_string()),
+        },
+        Err(e) => BatchParseResult {
+            file_name,
+            file_path: file_path.to_string(),
+            parsed: None,
+            error: Some(format!("Impossible de lire le PDF : {e}")),
+        },
+    }
+}
+
+/// Traite un lot de bons PDF en une seule commande — un fichier en échec
+/// (scan image, PDF corrompu...) n'empêche jamais le traitement des autres,
+/// contrairement à `parse_shipping_note_pdf` qui échoue tout ou rien pour un
+/// seul fichier à la fois.
+#[tauri::command]
+pub fn parse_shipping_notes_pdfs(file_paths: Vec<String>) -> Vec<BatchParseResult> {
+    file_paths.iter().map(|p| parse_one_for_batch(p)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +405,41 @@ mod tests {
         assert!(is_noise_line("FR"));
         assert!(is_noise_line("628003"));
         assert!(!is_noise_line("Agence Adéquat Nîmes"));
+    }
+
+    #[test]
+    fn parse_one_for_batch_gere_un_bon_valide() {
+        // Simule via parse_shipping_note directement (parse_one_for_batch
+        // fait juste l'extraction PDF autour, non testable sans vrai fichier
+        // — voir jetable_verifie_extraction_reelle_depuis_un_vrai_fichier_pdf
+        // dans une session précédente pour la couverture disque réelle).
+        let r = parse_shipping_note(BON_ENVOI_PERIGUEUX);
+        assert_eq!(r.agency.as_deref(), Some("Agence Adéquat Perigueux"));
+    }
+
+    #[test]
+    fn parse_one_for_batch_fichier_introuvable_renvoie_une_erreur_pas_de_panic() {
+        let result = parse_one_for_batch("Z:/chemin/qui/n/existe/manifestement/pas.pdf");
+        assert!(result.parsed.is_none());
+        assert!(result.error.is_some());
+        assert_eq!(result.file_name, "pas.pdf");
+    }
+
+    #[test]
+    fn parse_shipping_notes_pdfs_traite_chaque_fichier_independamment() {
+        // Un chemin invalide au milieu du lot ne doit ni paniquer ni bloquer
+        // le traitement des autres — c'est la garantie centrale de cette
+        // commande par rapport à parse_shipping_note_pdf (tout-ou-rien).
+        let results = parse_shipping_notes_pdfs(vec![
+            "Z:/introuvable1.pdf".to_string(),
+            "Z:/introuvable2.pdf".to_string(),
+        ]);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.error.is_some() && r.parsed.is_none()));
+    }
+
+    #[test]
+    fn parse_shipping_notes_pdfs_liste_vide_renvoie_liste_vide() {
+        assert_eq!(parse_shipping_notes_pdfs(vec![]), Vec::new());
     }
 }

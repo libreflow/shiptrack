@@ -170,6 +170,12 @@ function toggleMonth(key) {
 }
 
 let toastTimer = null;
+// Action d'annulation actuellement proposée par le toast visible (statut
+// changé ou expédition supprimée) — permet à Ctrl+Z de déclencher la même
+// action que le bouton "Annuler" du toast, tant que celui-ci est affiché.
+// Effacé dès que le toast disparaît (bouton cliqué, nouvelle action, ou
+// délai écoulé) : passé ce délai, Ctrl+Z ne fait plus rien ici.
+let pendingUndo = null;
 function showToast(message, { error = false, onUndo = null } = {}) {
   const toast = el("toast");
   const undoBtn = el("toast-undo");
@@ -178,10 +184,13 @@ function showToast(message, { error = false, onUndo = null } = {}) {
   toast.classList.toggle("error", error);
 
   undoBtn.onclick = null;
+  pendingUndo = null;
   if (onUndo) {
+    pendingUndo = onUndo;
     undoBtn.classList.remove("hidden");
     undoBtn.onclick = () => {
       toast.classList.add("hidden");
+      pendingUndo = null;
       onUndo();
     };
   } else {
@@ -189,7 +198,10 @@ function showToast(message, { error = false, onUndo = null } = {}) {
   }
 
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.add("hidden"), error ? 5000 : onUndo ? 4000 : 2500);
+  toastTimer = setTimeout(() => {
+    toast.classList.add("hidden");
+    pendingUndo = null;
+  }, error ? 5000 : onUndo ? 4000 : 2500);
 }
 
 async function safeInvoke(cmd, args) {
@@ -1294,6 +1306,22 @@ function setupQuickRowKeyboard() {
     }
   });
 
+  // Ctrl+Z : annule la dernière action annulable (suppression, changement de
+  // statut) tant que son toast est affiché — même action que le bouton
+  // "Annuler" du toast. Volontairement PAS bloqué par shipment-dialog.open
+  // ni par isTypingInFormField() sauf pour ce raccourci précis : si
+  // l'utilisateur tape dans un champ texte, Ctrl+Z doit faire l'undo natif
+  // du champ (annuler la frappe), jamais notre action métier.
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === "z" && pendingUndo && !isTypingInFormField()) {
+      e.preventDefault();
+      const undo = pendingUndo;
+      el("toast").classList.add("hidden");
+      pendingUndo = null;
+      undo();
+    }
+  });
+
   el("q-submit").addEventListener("click", submitQuickRow);
 }
 
@@ -1496,14 +1524,30 @@ async function deleteShipment() {
   if (!id) return;
   const ok = await confirmDialog("Supprimer cette expédition ?", { title: "Supprimer", confirmLabel: "Supprimer" });
   if (!ok) return;
+  // Capturé AVANT suppression : toutes les données nécessaires pour une
+  // restauration à l'identique (voir restore_shipment côté Rust — même id,
+  // mêmes dates, jamais une nouvelle expédition qui ressemble à l'ancienne).
+  const deleted = allShipments.find((x) => x.id === id);
   try {
     await safeInvoke("delete_shipment", { id });
   } catch {
     return;
   }
   el("shipment-dialog").close();
-  showToast("Expédition supprimée");
   await loadShipments();
+  showToast("Expédition supprimée", {
+    onUndo: deleted ? () => restoreDeletedShipment(deleted) : null,
+  });
+}
+
+async function restoreDeletedShipment(shipment) {
+  try {
+    await safeInvoke("restore_shipment", { shipment });
+  } catch {
+    return; // erreur déjà affichée par safeInvoke
+  }
+  await loadShipments();
+  showToast("Suppression annulée");
 }
 
 async function exportXlsx(shipmentIds = null, triggerButton = null) {
@@ -1875,6 +1919,14 @@ window.addEventListener("DOMContentLoaded", () => {
   updateQuickPickupOptionAvailability();
 
   el("btn-cancel").addEventListener("click", () => el("shipment-dialog").close());
+  // Le focus posé par showModal() sur le premier champ (#f-supplier) n'est
+  // pas fiablement restauré à la fermeture (Annuler/Enregistrer/Supprimer/
+  // Échap) — sans ce blur, isTypingInFormField() resterait bloqué sur ce
+  // champ fantôme après coup et empêcherait Ctrl+Z de fonctionner juste
+  // après avoir fermé le dialog (ex: juste après une suppression).
+  el("shipment-dialog").addEventListener("close", () => {
+    document.activeElement?.blur?.();
+  });
   el("btn-delete").addEventListener("click", deleteShipment);
   el("shipment-form").addEventListener("submit", saveShipment);
 

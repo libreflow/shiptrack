@@ -102,6 +102,7 @@ async function loadApp({ shipments = [], presetLocalStorage = {}, dialogSave = v
       dialog.close = function () {
         this.removeAttribute("open");
         this.open = false;
+        this.dispatchEvent(new window.Event("close"));
       };
     }
   });
@@ -1524,6 +1525,127 @@ describe("main.js — dialog de confirmation (remplace window.confirm)", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(invokeMock).not.toHaveBeenCalledWith("delete_shipment", expect.anything());
+  });
+});
+
+describe("main.js — annuler une suppression (toast Annuler + Ctrl+Z)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("après suppression, le toast propose Annuler et le bouton restaure l'expédition à l'identique", async () => {
+    const shipment = makeShipment({ id: "id-1", status: "received", received_date: "2026-02-01", notes: "Traité par: Julie" });
+    await loadApp({ shipments: [shipment] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "delete_shipment") return null;
+      if (cmd === "restore_shipment") return shipment;
+      return null;
+    });
+
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    document.getElementById("btn-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(document.getElementById("toast-undo").classList.contains("hidden")).toBe(false);
+
+    document.getElementById("toast-undo").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const restoreCall = invokeMock.mock.calls.find((c) => c[0] === "restore_shipment");
+    expect(restoreCall[1].shipment.id).toBe("id-1");
+    expect(restoreCall[1].shipment.status).toBe("received");
+    expect(restoreCall[1].shipment.received_date).toBe("2026-02-01");
+    expect(restoreCall[1].shipment.notes).toBe("Traité par: Julie");
+  });
+
+  it("Ctrl+Z déclenche la même restauration que le bouton Annuler du toast", async () => {
+    const shipment = makeShipment({ id: "id-1" });
+    await loadApp({ shipments: [shipment] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "delete_shipment") return null;
+      if (cmd === "restore_shipment") return shipment;
+      return null;
+    });
+
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    document.getElementById("btn-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).toHaveBeenCalledWith("restore_shipment", expect.objectContaining({ shipment: expect.objectContaining({ id: "id-1" }) }));
+  });
+
+  it("Ctrl+Z ne fait rien s'il n'y a rien à annuler (aucun toast actif)", async () => {
+    await loadApp({ shipments: [] });
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("restore_shipment", expect.anything());
+  });
+
+  it("Ctrl+Z pendant la frappe dans un champ ne déclenche pas la restauration (undo natif du champ prioritaire)", async () => {
+    const shipment = makeShipment({ id: "id-1" });
+    await loadApp({ shipments: [shipment] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [];
+      if (cmd === "delete_shipment") return null;
+      return null;
+    });
+
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    document.getElementById("btn-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    document.getElementById("q-supplier").focus();
+    document.getElementById("q-supplier").dispatchEvent(new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("restore_shipment", expect.anything());
+  });
+
+  it("un second toast (nouvelle action) remplace l'undo en attente : Ctrl+Z n'annule plus la première suppression", async () => {
+    const shipmentA = makeShipment({ id: "id-1" });
+    const shipmentB = makeShipment({ id: "id-2", supplier: "Autre agence" });
+    await loadApp({ shipments: [shipmentA, shipmentB] });
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "list_shipments") return [shipmentB];
+      if (cmd === "delete_shipment") return null;
+      if (cmd === "update_shipment") return null;
+      return null;
+    });
+
+    document.querySelector('tr[data-id="id-1"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    document.getElementById("btn-delete").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    document.getElementById("confirm-dialog-ok").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Une seconde action annulable (changement de statut) écrase le pendingUndo.
+    document.querySelector('[data-cycle-id="id-2"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(invokeMock).not.toHaveBeenCalledWith("restore_shipment", expect.anything());
+    // C'est bien l'annulation du changement de statut qui a eu lieu.
+    const updateCall = invokeMock.mock.calls.find((c) => c[0] === "update_shipment");
+    expect(updateCall).toBeDefined();
   });
 });
 

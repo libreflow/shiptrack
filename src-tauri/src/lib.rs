@@ -35,6 +35,7 @@ pub fn run() {
             commands::create_shipment,
             commands::update_shipment,
             commands::delete_shipment,
+            commands::restore_shipment,
             commands::get_shipment,
             commands::export_shipments_xlsx,
             import::list_excel_sheets,

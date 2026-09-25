@@ -162,6 +162,50 @@ fn delete_shipment_impl(conn: &rusqlite::Connection, id: &str) -> Result<(), Str
 }
 
 #[tauri::command]
+pub fn restore_shipment(state: State<DbState>, shipment: Shipment) -> Result<Shipment, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    restore_shipment_impl(&conn, shipment)
+}
+
+/// Réinsère une expédition précédemment supprimée, à l'identique (même id,
+/// mêmes `created_at`/`updated_at` d'origine) — sert le bouton "Annuler" du
+/// toast affiché après une suppression, et le raccourci Ctrl+Z (voir
+/// deleteShipment côté frontend). Contrairement à `create_shipment`, ne
+/// génère ni nouvel id ni nouvelles dates : ce n'est pas une nouvelle
+/// expédition, c'est la même qui réapparaît. Si l'id existe déjà en base
+/// (cas normalement impossible avec un UUID v4, ex. double-clic sur
+/// "Annuler"), l'INSERT échoue proprement plutôt que d'écraser
+/// silencieusement une autre ligne.
+fn restore_shipment_impl(conn: &rusqlite::Connection, shipment: Shipment) -> Result<Shipment, String> {
+    conn.execute(
+        "INSERT INTO shipments (id, supplier, tracking_number, carrier, recipient, material, status, expected_date, received_date, notes, pickup_option, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            shipment.id,
+            clean_whitespace(&shipment.supplier),
+            clean_opt(shipment.tracking_number),
+            clean_opt(shipment.carrier),
+            clean_opt(shipment.recipient),
+            clean_whitespace(&shipment.material),
+            shipment.status,
+            clean_date(shipment.expected_date),
+            clean_date(shipment.received_date),
+            shipment.notes,
+            clean_pickup_option(shipment.pickup_option),
+            shipment.created_at,
+            shipment.updated_at,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT * FROM shipments WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    stmt.query_row(params![shipment.id], row_to_shipment)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_shipment(state: State<DbState>, id: String) -> Result<Option<Shipment>, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
     get_shipment_impl(&conn, &id)
@@ -394,6 +438,67 @@ mod tests {
 
         let fetched = get_shipment_impl(&conn, &created.id).unwrap();
         assert!(fetched.is_none());
+    }
+
+    #[test]
+    fn restore_shipment_reinserts_after_delete_with_identical_data() {
+        let conn = test_db();
+        let created = create_shipment_impl(&conn, sample_new_shipment()).unwrap();
+        delete_shipment_impl(&conn, &created.id).unwrap();
+        assert!(get_shipment_impl(&conn, &created.id).unwrap().is_none());
+
+        let restored = restore_shipment_impl(&conn, created.clone()).unwrap();
+
+        assert_eq!(restored.id, created.id);
+        assert_eq!(restored.supplier, created.supplier);
+        assert_eq!(restored.material, created.material);
+        assert_eq!(restored.status, created.status);
+        // Le restore ne doit ni régénérer un id ni rafraîchir les dates —
+        // c'est la même expédition qui réapparaît, pas une nouvelle.
+        assert_eq!(restored.created_at, created.created_at);
+        assert_eq!(restored.updated_at, created.updated_at);
+    }
+
+    #[test]
+    fn restore_shipment_preserves_a_non_default_status_and_dates() {
+        let conn = test_db();
+        let created = create_shipment_impl(&conn, sample_new_shipment()).unwrap();
+        let updated = update_shipment_impl(
+            &conn,
+            UpdateShipment {
+                id: created.id.clone(),
+                supplier: created.supplier.clone(),
+                tracking_number: created.tracking_number.clone(),
+                carrier: created.carrier.clone(),
+                recipient: created.recipient.clone(),
+                material: created.material.clone(),
+                status: "received".to_string(),
+                expected_date: created.expected_date.clone(),
+                received_date: Some("2026-09-20".to_string()),
+                notes: Some("Réceptionné par Julie".to_string()),
+                pickup_option: Some("with_pickup".to_string()),
+            },
+        )
+        .unwrap();
+        delete_shipment_impl(&conn, &updated.id).unwrap();
+
+        let restored = restore_shipment_impl(&conn, updated.clone()).unwrap();
+
+        assert_eq!(restored.status, "received");
+        assert_eq!(restored.received_date.as_deref(), Some("2026-09-20"));
+        assert_eq!(restored.notes.as_deref(), Some("Réceptionné par Julie"));
+        assert_eq!(restored.pickup_option.as_deref(), Some("with_pickup"));
+    }
+
+    #[test]
+    fn restore_shipment_fails_cleanly_if_id_already_exists() {
+        let conn = test_db();
+        let created = create_shipment_impl(&conn, sample_new_shipment()).unwrap();
+        // L'expédition n'a PAS été supprimée : restore sur un id déjà présent
+        // doit échouer proprement (contrainte PRIMARY KEY), jamais écraser
+        // silencieusement la ligne existante.
+        let result = restore_shipment_impl(&conn, created);
+        assert!(result.is_err());
     }
 
     #[test]

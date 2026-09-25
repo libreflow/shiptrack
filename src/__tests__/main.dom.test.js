@@ -448,8 +448,8 @@ describe("main.js — champ 'Date reçue' du dialog selon le statut", () => {
   });
 
   // Régression : le backend (update_shipment_impl côté Rust) efface
-  // silencieusement received_date si le statut n'est pas received/verified.
-  // Sans garde-fou côté UI, l'utilisateur pouvait saisir une date dans
+  // silencieusement received_date si le statut n'est pas "received". Sans
+  // garde-fou côté UI, l'utilisateur pouvait saisir une date dans
   // "Date reçue" avec un statut "Commandé"/"Expédié", cliquer Enregistrer,
   // et voir sa saisie disparaître sans aucun message.
   it("le champ Date reçue est masqué/désactivé quand le statut ne l'autorise pas", async () => {

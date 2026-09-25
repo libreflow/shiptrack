@@ -215,7 +215,6 @@ body {
 .stat-dot-ordered { background: #6b7280; }
 .stat-dot-shipped { background: #2563eb; }
 .stat-dot-received { background: #10b981; }
-.stat-dot-verified { background: #7c3aed; }
 
 /* Barre de filtre Ramassage (secondaire, sous stats-bar) : mêmes puces mais
    sans le point de couleur (pas de code couleur par valeur, contrairement au
@@ -611,7 +610,6 @@ tr:hover .row-edit-hint { opacity: 1; }
 .status-ordered { background: #e5e7eb; color: #374151; }
 .status-shipped { background: #dbeafe; color: #1e40af; }
 .status-received { background: #d1fae5; color: #065f46; }
-.status-verified { background: #ede9fe; color: #5b21b6; }
 
 .status-pill-clickable {
   cursor: pointer;

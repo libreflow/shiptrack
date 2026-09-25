@@ -12,11 +12,10 @@ const STATUS_LABELS = {
   ordered: "Commandé",
   shipped: "Expédié",
   received: "Reçu",
-  verified: "Vérifié",
 };
-const STATUS_ORDER = ["shipped", "ordered", "received", "verified"];
-// Cycle rapide au clic sur le badge d'une ligne : envoyé -> reçu -> vérifié -> commandé -> ...
-const STATUS_CYCLE = { shipped: "received", received: "verified", verified: "ordered", ordered: "shipped" };
+const STATUS_ORDER = ["shipped", "ordered", "received"];
+// Cycle rapide au clic sur le badge d'une ligne : envoyé -> reçu -> commandé -> ...
+const STATUS_CYCLE = { shipped: "received", received: "ordered", ordered: "shipped" };
 
 // Option de bon de transport TNT : avec/sans ramassage occasionnel — voir
 // demande utilisateur du 2026-09-23. PICKUP_LABELS_SHORT pour le badge du
@@ -845,7 +844,7 @@ async function bulkSetStatus(status) {
   });
   if (!ok) return;
 
-  const receivedDate = status === "received" || status === "verified" ? todayIso() : null;
+  const receivedDate = status === "received" ? todayIso() : null;
 
   let failCount = 0;
   for (const id of ids) {
@@ -1028,7 +1027,7 @@ async function cycleStatus(id) {
   const previousReceived = s.received_date;
   const nextStatus = STATUS_CYCLE[s.status] ?? "shipped";
   const receivedDate =
-    nextStatus === "received" || nextStatus === "verified" ? s.received_date || todayIso() : null;
+    nextStatus === "received" ? s.received_date || todayIso() : null;
 
   const applyStatus = async (status, receivedDateValue) => {
     await safeInvoke("update_shipment", {
@@ -1421,13 +1420,13 @@ function updateTrackingLinkButton() {
 }
 
 // Le backend efface silencieusement received_date si le statut n'est pas
-// "received"/"verified" (voir update_shipment_impl côté Rust). Sans ce
-// garde-fou, l'utilisateur pouvait saisir une date reçue dans le dialog
-// avec un statut "Commandé"/"Expédié", cliquer Enregistrer, et voir sa
-// saisie disparaître sans aucun avertissement.
+// "received" (voir update_shipment_impl côté Rust). Sans ce garde-fou,
+// l'utilisateur pouvait saisir une date reçue dans le dialog avec un statut
+// "Commandé"/"Expédié", cliquer Enregistrer, et voir sa saisie disparaître
+// sans aucun avertissement.
 function updateReceivedRowVisibility() {
   const status = el("f-status").value;
-  const allowsReceivedDate = status === "received" || status === "verified";
+  const allowsReceivedDate = status === "received";
   const row = el("received-row");
   const input = el("f-received");
   row.classList.toggle("hidden", !allowsReceivedDate);

@@ -117,7 +117,7 @@ pub fn update_shipment(state: State<DbState>, shipment: UpdateShipment) -> Resul
 }
 
 fn update_shipment_impl(conn: &rusqlite::Connection, shipment: UpdateShipment) -> Result<Shipment, String> {
-    let received_date = if shipment.status == "received" || shipment.status == "verified" {
+    let received_date = if shipment.status == "received" {
         clean_date(shipment.received_date.clone())
     } else {
         None
@@ -420,7 +420,7 @@ mod tests {
                 material: created.material.clone(),
                 status: "shipped".to_string(),
                 expected_date: created.expected_date.clone(),
-                received_date: Some("2026-10-20".to_string()), // ignoré car status != received/verified
+                received_date: Some("2026-10-20".to_string()), // ignoré car status != "received"
                 notes: None,
                 pickup_option: None,
             },

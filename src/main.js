@@ -1609,10 +1609,37 @@ async function selectPdfBatchFiles() {
   renderPdfBatchTable();
 }
 
+async function scanPdfBatchDirectory() {
+  const dir = await open({ directory: true });
+  if (!dir) return;
+  let paths;
+  try {
+    paths = await withLoading(el("btn-pdf-batch-scan"), "Scan…", () =>
+      safeInvoke("scan_pdfs_in_directory", { directory: dir })
+    );
+  } catch {
+    return; // erreur déjà affichée par safeInvoke
+  }
+  if (paths.length === 0) {
+    showToast("Aucun PDF trouvé dans ce dossier.");
+    return;
+  }
+  let results;
+  try {
+    results = await withLoading(el("btn-pdf-batch-scan"), "Lecture…", () =>
+      safeInvoke("parse_shipping_notes_pdfs", { filePaths: paths })
+    );
+  } catch {
+    return;
+  }
+  pdfBatchRows = batchResultsToRows(results);
+  renderPdfBatchTable();
+}
+
 function renderPdfBatchTable() {
   const body = el("pdf-batch-body");
   if (pdfBatchRows.length === 0) {
-    body.innerHTML = `<tr><td colspan="8" class="empty">Aucun fichier sélectionné.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="empty">Aucun fichier sélectionné.</td></tr>`;
   } else {
     body.innerHTML = pdfBatchRows
       .map((row, i) => {
@@ -1621,7 +1648,7 @@ function renderPdfBatchTable() {
             <tr class="pdf-batch-row-error">
               <td></td>
               <td title="${escapeHtml(row.file_name)}">${escapeHtml(row.file_name)}</td>
-              <td colspan="6" class="pdf-batch-error-message">⚠ ${escapeHtml(row.error)}</td>
+              <td colspan="7" class="pdf-batch-error-message">⚠ ${escapeHtml(row.error)}</td>
             </tr>`;
         }
         const missingSupplier = row.included && !row.supplier.trim();
@@ -1642,6 +1669,7 @@ function renderPdfBatchTable() {
             </td>
             <td><input type="text" data-row-index="${i}" data-row-field="recipient" list="recipients-list" value="${escapeHtml(row.recipient)}" /></td>
             <td><input type="date" data-row-index="${i}" data-row-field="expected_date" value="${escapeHtml(row.expected_date)}" /></td>
+            <td><input type="text" data-row-index="${i}" data-row-field="notes" value="${escapeHtml(row.notes)}" placeholder="Préciser le contenu du colis…" /></td>
           </tr>`;
       })
       .join("");
@@ -2057,6 +2085,7 @@ window.addEventListener("DOMContentLoaded", () => {
   el("btn-pdf-batch").addEventListener("click", showPdfBatchPage);
   el("btn-pdf-batch-back").addEventListener("click", hidePdfBatchPage);
   el("btn-pdf-batch-select").addEventListener("click", selectPdfBatchFiles);
+  el("btn-pdf-batch-scan").addEventListener("click", scanPdfBatchDirectory);
   el("btn-pdf-batch-create").addEventListener("click", createPdfBatchShipments);
   el("pdf-batch-body").addEventListener("input", handlePdfBatchTableInput);
   el("pdf-batch-body").addEventListener("change", handlePdfBatchTableInput);

@@ -28,6 +28,7 @@ export function batchResultToRow(result) {
     carrier: parsed.carrier ?? "",
     recipient: parsed.recipient ?? "",
     expected_date: parsed.expected_date ?? "",
+    notes: "", // jamais extrait du bon — l'utilisateur précise le contenu du colis à la main
     warnings: parsed.warnings ?? [],
     // Décochée par défaut pour une ligne en erreur (rien à créer), cochée
     // sinon — l'utilisateur peut décocher une ligne valide qu'il veut sauter.
@@ -64,7 +65,7 @@ export function rowToNewShipmentPayload(row, { technician = null } = {}) {
     recipient: row.recipient.trim() || null,
     expected_date: row.expected_date || null,
     pickup_option: null, // jamais extrait du bon PDF (voir pdf_import.rs) — à renseigner ensuite si TNT
-    notes: technician ? `Traité par: ${technician}` : null,
+    notes: row.notes.trim() || (technician ? `Traité par: ${technician}` : null),
   };
 }
 

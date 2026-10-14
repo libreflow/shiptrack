@@ -312,6 +312,41 @@ pub fn parse_shipping_notes_pdfs(file_paths: Vec<String>) -> Vec<BatchParseResul
     file_paths.iter().map(|p| parse_one_for_batch(p)).collect()
 }
 
+/// Liste récursive des fichiers PDF d'un dossier (tri par nom, chemins tels
+/// que trouvés) — pour le bouton "Scanner un dossier" de la page "Import PDF
+/// (lot)". Les fichiers non-PDF sont ignorés ; les erreurs par fichier restent
+/// le travail de `parse_shipping_notes_pdfs`, ce scan ne fait que découvrir.
+#[tauri::command]
+pub fn scan_pdfs_in_directory(directory: String) -> Result<Vec<String>, String> {
+    let dir = std::path::Path::new(&directory);
+    if !dir.is_dir() {
+        return Err(format!("Le dossier n'existe pas ou n'est pas un dossier : {directory}"));
+    }
+    let mut paths = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let entries = std::fs::read_dir(&current)
+            .map_err(|e| format!("Impossible de lire le dossier {} : {e}", current.display()))?;
+        for entry in entries {
+            let entry = entry
+                .map_err(|e| format!("Impossible de lire une entrée de {} : {e}", current.display()))?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("pdf"))
+                .unwrap_or(false)
+            {
+                paths.push(path.to_string_lossy().into_owned());
+            }
+        }
+    }
+    paths.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,6 +471,41 @@ mod tests {
         ]);
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.error.is_some() && r.parsed.is_none()));
+    }
+
+    #[test]
+    fn scan_trouve_les_pdf_recursivement_et_les_trie() {
+        let root = std::env::temp_dir().join("shiptrack_scan_test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sous-doss")).unwrap();
+        std::fs::write(root.join("b.pdf"), b"x").unwrap();
+        std::fs::write(root.join("a.PDF"), b"x").unwrap();
+        std::fs::write(root.join("sous-doss/c.pdf"), b"x").unwrap();
+        std::fs::write(root.join("ignore.txt"), b"x").unwrap();
+        let paths = scan_pdfs_in_directory(root.to_string_lossy().into_owned()).unwrap();
+        let names: Vec<&str> = paths
+            .iter()
+            .map(|p| std::path::Path::new(p).file_name().unwrap().to_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["a.PDF", "b.pdf", "c.pdf"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn scan_dossier_inexistant_echoue() {
+        assert!(scan_pdfs_in_directory("/inexistant/xyz".to_string()).is_err());
+    }
+
+    #[test]
+    fn scan_dossier_sans_pdf_renvoie_liste_vide() {
+        let root = std::env::temp_dir().join("shiptrack_scan_empty");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("note.txt"), b"x").unwrap();
+        assert!(scan_pdfs_in_directory(root.to_string_lossy().into_owned())
+            .unwrap()
+            .is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

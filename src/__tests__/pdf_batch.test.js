@@ -40,6 +40,7 @@ describe("batchResultToRow", () => {
       carrier: "TNT",
       recipient: "MAZEAU Renaud",
       expected_date: "2026-09-08",
+      notes: "",
       warnings: [],
       included: true,
     });
@@ -193,6 +194,16 @@ describe("rowToNewShipmentPayload", () => {
   it("sans technicien -> notes null", () => {
     const row = batchResultToRow(makeBatchResult());
     expect(rowToNewShipmentPayload(row).notes).toBeNull();
+  });
+  it("notes remplies à la main -> reprises telles quelles dans le payload", () => {
+    const row = batchResultToRow(makeBatchResult());
+    row.notes = "2 écrans 24 pouces + dock USB-C";
+    expect(rowToNewShipmentPayload(row, { technician: "Julie" }).notes).toBe("2 écrans 24 pouces + dock USB-C");
+  });
+  it("notes à la main -> prioritaire sur le placeholder « Traité par »", () => {
+    const row = batchResultToRow(makeBatchResult());
+    row.notes = "  Visites sur site  ";
+    expect(rowToNewShipmentPayload(row, { technician: "Julie" }).notes).toBe("Visites sur site");
   });
 
   it("pickup_option est toujours null (jamais extrait d'un bon PDF)", () => {

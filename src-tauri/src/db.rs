@@ -122,8 +122,22 @@ pub fn backup_db_now(app_data_dir: &std::path::Path, reason: &str) -> Result<std
 
     let stamp = chrono::Local::now().format("%Y-%m-%d_%Hh%M%S").to_string();
     let backup_path = backups_dir.join(format!("shiptrack_{reason}_{stamp}.sqlite3"));
-    std::fs::copy(&db_path, &backup_path).map_err(|e| e.to_string())?;
+    vacuum_into(&db_path, &backup_path)?;
     Ok(backup_path)
+}
+
+/// Copie de sécurité cohérente via `VACUUM INTO` (SQLite >= 3.27) plutôt que
+/// `fs::copy` : le fichier produit est toujours une base complète et valide,
+/// même si une écriture est en cours pendant la copie. Un `fs::copy` sur une
+/// base en cours d'écriture peut produire un backup corrompu (page WAL non
+/// incluse, transaction à moitié écrite), exactement ce qu'un backup est
+/// censé éviter. Le chemin est échappé (guillemets simples doublés).
+fn vacuum_into(db_path: &std::path::Path, backup_path: &std::path::Path) -> Result<(), String> {
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let escaped = backup_path.display().to_string().replace("'", "''");
+    conn.execute(&format!("VACUUM INTO '{}'", escaped), [])
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Sauvegarde la base dans <app_data_dir>/backups/shiptrack_YYYY-MM-DD.sqlite3,
@@ -149,8 +163,8 @@ pub fn backup_db(app_data_dir: &std::path::Path) {
         return; // déjà sauvegardé aujourd'hui
     }
 
-    if let Err(e) = std::fs::copy(&db_path, &backup_path) {
-        eprintln!("backup_db: failed to copy database: {e}");
+    if let Err(e) = vacuum_into(&db_path, &backup_path) {
+        eprintln!("backup_db: failed to back up database: {e}");
         return;
     }
 

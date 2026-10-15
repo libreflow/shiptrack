@@ -176,6 +176,7 @@
         <p class="hint">Sélectionnez un ou plusieurs bons TNT au format PDF. Chaque bon devient une ligne ci-dessous, pré-remplie avec ce qui a pu être extrait — corrigez si besoin avant de créer les expéditions. Le champ Matériel n'est jamais présent sur un bon de transport : il est pré-rempli à « Non renseigné », à corriger ensuite dans le tableau principal.</p>
         <div class="pdf-batch-actions">
           <button type="button" id="btn-pdf-batch-select" class="btn btn-primary">Sélectionner des PDF…</button>
+          <button type="button" id="btn-pdf-batch-scan" class="btn btn-primary">Scanner un dossier…</button>
           <span id="pdf-batch-summary" class="pdf-batch-summary"></span>
           <div class="spacer"></div>
           <button type="button" id="btn-pdf-batch-create" class="btn btn-primary" disabled>Créer les expéditions</button>
@@ -192,10 +193,11 @@
                 <th>Transporteur</th>
                 <th>Destinataire</th>
                 <th>Date prévue</th>
+                <th>Notes</th>
               </tr>
             </thead>
             <tbody id="pdf-batch-body">
-              <tr><td colspan="8" class="empty">Aucun fichier sélectionné.</td></tr>
+              <tr><td colspan="9" class="empty">Aucun fichier sélectionné.</td></tr>
             </tbody>
           </table>
         </div>

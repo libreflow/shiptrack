@@ -42,6 +42,7 @@ pub fn run() {
             import::import_excel_sheet,
             pdf_import::parse_shipping_note_pdf,
             pdf_import::parse_shipping_notes_pdfs,
+            pdf_import::scan_pdfs_in_directory,
             archive::count_archivable,
             archive::archive_shipments_before,
             archive::list_archives,

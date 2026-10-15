@@ -7,6 +7,13 @@ import { monthLabel, isMonthCollapsed, toggleMonthOverride, groupByMonth, format
 import { sortShipments, filterShipments } from "./shipments.js";
 import { buildTrackingUrl, isValidTrackingValue, inferCarrier, isNumericTrackingValue } from "./tracking.js";
 import { DEFAULT_MATERIAL_PLACEHOLDER, batchResultsToRows, includedRows, rowToNewShipmentPayload, summarizeRows } from "./pdf_batch.js";
+import { storedTheme, nextTheme, effectiveTheme } from "./theme.js";
+import { readStoredJson as readStoredJsonImpl, writeStoredJson as writeStoredJsonImpl } from "./storage.js";
+// Adaptation des helpers de storage.js (qui prennent le storage en 1er
+// argument pour etre testables sans window) a l'usage local : ici c'est
+// toujours localStorage.
+const readStoredJson = (key) => readStoredJsonImpl(localStorage, key);
+const writeStoredJson = (key, value) => writeStoredJsonImpl(localStorage, key, value);
 
 const STATUS_LABELS = {
   ordered: "Commandé",
@@ -130,25 +137,7 @@ function todayIso() {
 
 /* ---------- Persistance des filtres ---------- */
 
-// Version du schéma localStorage : chaque payload persisté embarque sa version
-// (`v`) ; une version inconnue (app downgradée ou format changé sans bump)
-// est ignorée silencieusement plutôt que d'injecter un état corrompu dans l'UI.
-const STORAGE_SCHEMA_VERSION = 1;
-function readStoredJson(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.v !== STORAGE_SCHEMA_VERSION) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-function writeStoredJson(key, value) {
-  localStorage.setItem(key, JSON.stringify({ v: STORAGE_SCHEMA_VERSION, ...value }));
-}
-
+// readStoredJson/writeStoredJson : voir storage.js (versionnage du schema).
 function saveFiltersToStorage() {
   const state = getActiveFilterState();
   writeStoredJson(

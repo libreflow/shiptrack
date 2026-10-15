@@ -763,7 +763,8 @@ describe("main.js — colonnes redimensionnables", () => {
     handle.dispatchEvent(new window.PointerEvent("pointerup", { clientX: 200, bubbles: true, pointerId: 1 }));
 
     const stored = JSON.parse(localStorage.getItem("shiptrack.columnWidths"));
-    expect(stored.supplier).toBe(250);
+    expect(stored.v).toBe(1);
+    expect(stored.widths.supplier).toBe(250);
   });
 
   it("ne descend jamais sous la largeur minimale", async () => {
@@ -783,7 +784,7 @@ describe("main.js — colonnes redimensionnables", () => {
   it("une largeur stockée est réappliquée au rechargement de l'app", async () => {
     await loadApp({
       shipments: [makeShipment()],
-      presetLocalStorage: { "shiptrack.columnWidths": JSON.stringify({ material: 300 }) },
+      presetLocalStorage: { "shiptrack.columnWidths": JSON.stringify({ v: 1, widths: { material: 300 } }) },
     });
 
     const col = document.querySelector('#shipments-table col[data-col="material"]');

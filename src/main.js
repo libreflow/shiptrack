@@ -113,9 +113,28 @@ function todayIso() {
 
 /* ---------- Persistance des filtres ---------- */
 
+// Version du schéma localStorage : chaque payload persisté embarque sa version
+// (`v`) ; une version inconnue (app downgradée ou format changé sans bump)
+// est ignorée silencieusement plutôt que d'injecter un état corrompu dans l'UI.
+const STORAGE_SCHEMA_VERSION = 1;
+function readStoredJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.v !== STORAGE_SCHEMA_VERSION) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function writeStoredJson(key, value) {
+  localStorage.setItem(key, JSON.stringify({ v: STORAGE_SCHEMA_VERSION, ...value }));
+}
+
 function saveFiltersToStorage() {
   const state = getActiveFilterState();
-  localStorage.setItem(
+  writeStoredJson(
     FILTERS_STORAGE_KEY,
     JSON.stringify({
       search: el("search").value,
@@ -129,20 +148,16 @@ function saveFiltersToStorage() {
 }
 
 function restoreFiltersFromStorage() {
-  try {
-    const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
-    if (!raw) return;
-    const state = JSON.parse(raw);
-    if (state.search) el("search").value = state.search;
-    if (state.status) statusFilter = state.status;
-    if (state.pickup) pickupFilter = state.pickup;
-    if (state.groupByMonth) el("group-by-month").checked = true;
-    if (state.sortKey) sortKey = state.sortKey;
-    if (state.sortDir) sortDir = state.sortDir;
-  } catch (err) {
-    console.warn("Impossible de restaurer les filtres", err);
-  }
+  const state = readStoredJson(FILTERS_STORAGE_KEY);
+  if (!state) return;
+  if (state.search) el("search").value = state.search;
+  if (state.status) statusFilter = state.status;
+  if (state.pickup) pickupFilter = state.pickup;
+  if (state.groupByMonth) el("group-by-month").checked = true;
+  if (state.sortKey) sortKey = state.sortKey;
+  if (state.sortDir) sortDir = state.sortDir;
 }
+
 
 /* ---------- Regroupement par mois ---------- */
 
@@ -151,16 +166,12 @@ function currentMonthKey() {
 }
 
 function loadCollapsedMonths() {
-  try {
-    const raw = localStorage.getItem(COLLAPSED_MONTHS_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
+  const state = readStoredJson(COLLAPSED_MONTHS_KEY);
+  return state && Array.isArray(state.months) ? new Set(state.months) : new Set();
 }
 
 function saveCollapsedMonths() {
-  localStorage.setItem(COLLAPSED_MONTHS_KEY, JSON.stringify([...collapsedOverrides]));
+  writeStoredJson(COLLAPSED_MONTHS_KEY, { months: [...collapsedOverrides] });
 }
 
 function toggleMonth(key) {
@@ -1329,16 +1340,12 @@ function setupQuickRowKeyboard() {
 const MIN_COLUMN_WIDTH = 50;
 
 function loadColumnWidths() {
-  try {
-    const raw = localStorage.getItem(COLUMN_WIDTHS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  const state = readStoredJson(COLUMN_WIDTHS_KEY);
+  return state && typeof state.widths === "object" && state.widths !== null ? state.widths : {};
 }
 
 function saveColumnWidths(widths) {
-  localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(widths));
+  writeStoredJson(COLUMN_WIDTHS_KEY, { widths });
 }
 
 function applyColumnWidths() {

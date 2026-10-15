@@ -22,6 +22,7 @@
               <button type="button" id="btn-import" class="export-menu-item">Importer un fichier Excel…</button>
               <button type="button" id="btn-pdf-batch" class="export-menu-item">Créer des envois depuis des bons PDF (TNT)…</button>
               <div class="export-menu-separator"></div>
+              <button type="button" id="btn-trash" class="export-menu-item">Corbeille…</button>
               <button type="button" id="btn-archive" class="export-menu-item">Archiver les anciennes années…</button>
               <button type="button" id="btn-reload-archive" class="export-menu-item">Recharger une archive…</button>
             </div>
@@ -198,6 +199,41 @@
             </thead>
             <tbody id="pdf-batch-body">
               <tr><td colspan="9" class="empty">Aucun fichier sélectionné.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Page plein-écran "Corbeille" : les expéditions supprimées
+           (soft-delete, voir commands.rs delete_shipment_impl) y sont
+           listées, restaurables une par une ou purgeables
+           définitivement. Bascule via #btn-trash / #btn-trash-back. -->
+      <section id="trash-page" class="pdf-batch-page hidden">
+        <div class="pdf-batch-header">
+          <button type="button" id="btn-trash-back" class="btn btn-secondary">← Retour au tableau</button>
+          <h2>Corbeille</h2>
+        </div>
+        <p class="hint">Les expéditions supprimées restent ici jusqu'à purge définitive. La sauvegarde quotidienne les couvre comme le reste de la base.</p>
+        <div class="pdf-batch-actions">
+          <span id="trash-summary" class="pdf-batch-summary"></span>
+          <div class="spacer"></div>
+          <button type="button" id="btn-trash-restore-all" class="btn btn-primary" disabled>Restaurer tout</button>
+          <button type="button" id="btn-trash-purge-all" class="btn btn-danger" disabled>Vider définitivement</button>
+        </div>
+        <div class="table-scroll">
+          <table class="shipments-table" id="trash-table">
+            <thead>
+              <tr>
+                <th>Supprimée le</th>
+                <th>Agence</th>
+                <th>Matériel</th>
+                <th>N° suivi</th>
+                <th>Destinataire</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="trash-body">
+              <tr><td colspan="6" class="empty">Corbeille vide.</td></tr>
             </tbody>
           </table>
         </div>

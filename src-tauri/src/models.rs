@@ -16,6 +16,8 @@ pub struct Shipment {
     /// occasionnel) ou "without_pickup" (sans). Non pertinent hors TNT —
     /// reste `None` pour les autres transporteurs, jamais déduit.
     pub pickup_option: Option<String>,
+    /// Corbeille : horodatage de suppression logique, NULL = active.
+    pub deleted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

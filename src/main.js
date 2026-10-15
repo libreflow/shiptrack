@@ -1614,6 +1614,112 @@ function hidePdfBatchPage() {
   document.querySelector("main").classList.remove("hidden");
 }
 
+/* ---------- Corbeille (soft-delete cote backend, voir commands.rs) ---------- */
+let trashRows = [];
+function showTrashPage() {
+  el("file-menu").classList.add("hidden");
+  el("trash-page").classList.remove("hidden");
+  el("main-table-chrome").classList.add("hidden");
+  document.querySelector("main").classList.add("hidden");
+  loadTrash();
+}
+function hideTrashPage() {
+  el("trash-page").classList.add("hidden");
+  el("main-table-chrome").classList.remove("hidden");
+  document.querySelector("main").classList.remove("hidden");
+}
+async function loadTrash() {
+  try {
+    trashRows = await safeInvoke("list_deleted_shipments", {});
+  } catch {
+    return;
+  }
+  renderTrashTable();
+}
+function renderTrashTable() {
+  const body = el("trash-body");
+  if (trashRows.length === 0) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">Corbeille vide.</td></tr>`;
+  } else {
+    body.innerHTML = trashRows
+      .map(
+        (t) => `
+        <tr data-id="${escapeHtml(t.id)}">
+          <td>${escapeHtml((t.deleted_at ?? "").slice(0, 16).replace("T", " "))}</td>
+          <td>${escapeHtml(t.supplier)}</td>
+          <td>${escapeHtml(t.material)}</td>
+          <td>${escapeHtml(t.tracking_number ?? "")}</td>
+          <td>${escapeHtml(t.recipient ?? "")}</td>
+          <td class="trash-actions">
+            <button type="button" class="btn btn-sm btn-secondary" data-trash-restore="${escapeHtml(t.id)}">Restaurer</button>
+            <button type="button" class="btn btn-sm btn-danger" data-trash-purge="${escapeHtml(t.id)}">Supprimer définitivement</button>
+          </td>
+        </tr>`
+      )
+      .join("");
+    body.querySelectorAll("[data-trash-restore]").forEach((btn) =>
+      btn.addEventListener("click", () => restoreFromTrash(btn.dataset.trashRestore))
+    );
+    body.querySelectorAll("[data-trash-purge]").forEach((btn) =>
+      btn.addEventListener("click", () => purgeFromTrash(btn.dataset.trashPurge))
+    );
+  }
+  el("trash-summary").textContent =
+    trashRows.length > 0 ? `${trashRows.length} expédition(s) supprimée(s)` : "";
+  el("btn-trash-restore-all").disabled = trashRows.length === 0;
+  el("btn-trash-purge-all").disabled = trashRows.length === 0;
+}
+async function restoreFromTrash(id) {
+  try {
+    await safeInvoke("restore_shipment_by_id", { id });
+  } catch {
+    return;
+  }
+  showToast("Expédition restaurée");
+  await Promise.all([loadTrash(), loadShipments()]);
+}
+async function restoreAllFromTrash() {
+  if (trashRows.length === 0) return;
+  for (const t of trashRows) {
+    try {
+      await invoke("restore_shipment_by_id", { id: t.id });
+    } catch (err) {
+      console.error("restoreAllFromTrash", t.id, err);
+    }
+  }
+  showToast(`${trashRows.length} expédition(s) restaurée(s)`);
+  await Promise.all([loadTrash(), loadShipments()]);
+}
+async function purgeFromTrash(id) {
+  const ok = await confirmDialog(
+    "Supprimer définitivement cette expédition ? Cette action est irréversible.",
+    { title: "Suppression définitive", confirmLabel: "Supprimer" }
+  );
+  if (!ok) return;
+  try {
+    await safeInvoke("purge_shipments", { ids: [id] });
+  } catch {
+    return;
+  }
+  showToast("Expédition supprimée définitivement");
+  await loadTrash();
+}
+async function purgeAllFromTrash() {
+  if (trashRows.length === 0) return;
+  const ok = await confirmDialog(
+    `Vider définitivement la corbeille (${trashRows.length} expédition(s)) ? Cette action est irréversible.`,
+    { title: "Vider la corbeille", confirmLabel: "Vider" }
+  );
+  if (!ok) return;
+  try {
+    await safeInvoke("purge_shipments", { ids: null });
+  } catch {
+    return;
+  }
+  showToast("Corbeille vidée");
+  await loadTrash();
+}
+
 async function selectPdfBatchFiles() {
   const paths = await open({
     multiple: true,
@@ -2112,6 +2218,10 @@ window.addEventListener("DOMContentLoaded", () => {
   el("btn-pdf-batch-select").addEventListener("click", selectPdfBatchFiles);
   el("btn-pdf-batch-scan").addEventListener("click", scanPdfBatchDirectory);
   el("btn-pdf-batch-create").addEventListener("click", createPdfBatchShipments);
+  el("btn-trash").addEventListener("click", showTrashPage);
+  el("btn-trash-back").addEventListener("click", hideTrashPage);
+  el("btn-trash-restore-all").addEventListener("click", restoreAllFromTrash);
+  el("btn-trash-purge-all").addEventListener("click", purgeAllFromTrash);
   el("pdf-batch-body").addEventListener("input", handlePdfBatchTableInput);
   el("pdf-batch-body").addEventListener("change", handlePdfBatchTableInput);
 

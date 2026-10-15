@@ -57,7 +57,7 @@ function clearTrackedListeners() {
   trackedListeners = [];
 }
 
-async function loadApp({ shipments = [], presetLocalStorage = {}, dialogSave = vi.fn(), dialogOpen = vi.fn() } = {}) {
+async function loadApp({ shipments = [], trash = [], presetLocalStorage = {}, dialogSave = vi.fn(), dialogOpen = vi.fn() } = {}) {
   clearTrackedListeners();
   // Repart d'un DOM propre à chaque test à partir du vrai fichier index.html.
   document.body.innerHTML = BODY_HTML;
@@ -68,6 +68,9 @@ async function loadApp({ shipments = [], presetLocalStorage = {}, dialogSave = v
     if (cmd === "list_shipments") return shipments;
     if (cmd === "delete_shipment") return null;
     if (cmd === "update_shipment") return null;
+    if (cmd === "list_deleted_shipments") return trash ?? [];
+    if (cmd === "restore_shipment_by_id") return null;
+    if (cmd === "purge_shipments") return 0;
     if (cmd === "create_shipment") return makeShipment({ id: "new-id" });
     return null;
   });
@@ -2346,5 +2349,52 @@ describe("main.js — ramassage occasionnel (option de bon TNT)", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(document.querySelector('[data-pickup-option="with_pickup"]').classList.contains("active")).toBe(false);
+  });
+});
+
+describe("main.js — corbeille (soft-delete)", () => {
+  const openTrash = async (opts) => {
+    await loadApp(opts);
+    document.getElementById("btn-file-menu").dispatchEvent(new window.Event("click", { bubbles: true }));
+    document.getElementById("btn-trash").dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it("la page Corbeille s'ouvre depuis le menu Fichier et se referme", async () => {
+    await openTrash({ shipments: [makeShipment()] });
+    expect(document.getElementById("trash-page").classList.contains("hidden")).toBe(false);
+    document.getElementById("btn-trash-back").dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(document.getElementById("trash-page").classList.contains("hidden")).toBe(true);
+  });
+
+  it("les expéditions supprimées sont listées, avec date de suppression", async () => {
+    await openTrash({
+      shipments: [makeShipment()],
+      trash: [makeShipment({ id: "t1", supplier: "Agence X", deleted_at: "2026-10-14 09:30:00" })],
+    });
+    const rows = [...document.querySelectorAll("#trash-body tr[data-id]")];
+    expect(rows.map((r) => r.dataset.id)).toEqual(["t1"]);
+    expect(rows[0].textContent).toContain("Agence X");
+    expect(rows[0].textContent).toContain("2026-10-14 09:30");
+    expect(document.getElementById("trash-summary").textContent).toContain("1 expédition(s)");
+  });
+
+  it("corbeille vide : message dédié et boutons désactivés", async () => {
+    await openTrash({ shipments: [makeShipment()], trash: [] });
+    expect(document.getElementById("trash-body").textContent).toContain("Corbeille vide.");
+    expect(document.getElementById("btn-trash-restore-all").disabled).toBe(true);
+    expect(document.getElementById("btn-trash-purge-all").disabled).toBe(true);
+  });
+
+  it("Restaurer appelle restore_shipment_by_id puis recharge tableau et corbeille", async () => {
+    await openTrash({
+      shipments: [makeShipment()],
+      trash: [makeShipment({ id: "t1" })],
+    });
+    const restoreBtn = document.querySelector('[data-trash-restore="t1"]');
+    restoreBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    const called = invokeMock.mock.calls.some(([cmd, args]) => cmd === "restore_shipment_by_id" && args.id === "t1");
+    expect(called).toBe(true);
   });
 });

@@ -94,7 +94,7 @@ fn import_sheet_impl(
     // comme "tnt"/"dpd", donc on avertit sans jamais bloquer l'import).
     let mut existing_tracking: std::collections::HashSet<String> = {
         let mut stmt = conn
-            .prepare("SELECT tracking_number FROM shipments WHERE tracking_number IS NOT NULL AND tracking_number != ''")
+            .prepare("SELECT tracking_number FROM shipments WHERE deleted_at IS NULL AND tracking_number IS NOT NULL AND tracking_number != ''")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| r.get::<_, String>(0))
@@ -198,7 +198,7 @@ pub fn import_excel_sheet(
     let (inserted, skipped, duplicates) = import_sheet_impl(&conn, &rows)?;
 
     let mut stmt = conn
-        .prepare("SELECT * FROM shipments")
+        .prepare("SELECT * FROM shipments WHERE deleted_at IS NULL")
         .map_err(|e| e.to_string())?;
     let all: Vec<Shipment> = stmt
         .query_map([], crate::commands::row_to_shipment)

@@ -57,6 +57,7 @@ pub fn row_to_shipment(row: &rusqlite::Row) -> rusqlite::Result<Shipment> {
         received_date: row.get("received_date")?,
         notes: row.get("notes")?,
         pickup_option: row.get("pickup_option")?,
+        deleted_at: row.get("deleted_at")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -70,7 +71,7 @@ pub fn list_shipments(state: State<DbState>) -> Result<Vec<Shipment>, String> {
 
 fn list_shipments_impl(conn: &rusqlite::Connection) -> Result<Vec<Shipment>, String> {
     let mut stmt = conn
-        .prepare("SELECT * FROM shipments ORDER BY expected_date IS NULL, expected_date ASC, created_at DESC")
+        .prepare("SELECT * FROM shipments WHERE deleted_at IS NULL ORDER BY expected_date IS NULL, expected_date ASC, created_at DESC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], row_to_shipment)
@@ -156,9 +157,66 @@ pub fn delete_shipment(state: State<DbState>, id: String) -> Result<(), String> 
 }
 
 fn delete_shipment_impl(conn: &rusqlite::Connection, id: &str) -> Result<(), String> {
-    conn.execute("DELETE FROM shipments WHERE id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
+    // Corbeille : soft-delete — la ligne reste en base avec deleted_at
+    // horodaté, invisible partout ailleurs (list_shipments filtre
+    // deleted_at IS NULL), restaurable depuis la page Corbeille.
+    conn.execute(
+        "UPDATE shipments SET deleted_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_deleted_shipments(state: State<DbState>) -> Result<Vec<Shipment>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT * FROM shipments WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], row_to_shipment)
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn restore_shipment_by_id(state: State<DbState>, id: String) -> Result<Shipment, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE shipments SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?1",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT * FROM shipments WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    stmt.query_row(params![id], row_to_shipment)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn purge_shipments(state: State<DbState>, ids: Option<Vec<String>>) -> Result<usize, String> {
+    // Suppression definitive (corbeille videe) : seul endroit de l'app ou un
+    // DELETE physique a lieu, apres confirmation explicite cote UI.
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let n = match ids {
+        None => conn
+            .execute("DELETE FROM shipments WHERE deleted_at IS NOT NULL", [])
+            .map_err(|e| e.to_string())?,
+        Some(ids) if ids.is_empty() => 0,
+        Some(ids) => {
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "DELETE FROM shipments WHERE deleted_at IS NOT NULL AND id IN ({})",
+                placeholders
+            );
+            let params: Vec<&dyn rusqlite::ToSql> =
+                ids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+            conn.execute(&sql, params.as_slice()).map_err(|e| e.to_string())?
+        }
+    };
+    Ok(n)
 }
 
 #[tauri::command]
@@ -177,6 +235,22 @@ pub fn restore_shipment(state: State<DbState>, shipment: Shipment) -> Result<Shi
 /// "Annuler"), l'INSERT échoue proprement plutôt que d'écraser
 /// silencieusement une autre ligne.
 fn restore_shipment_impl(conn: &rusqlite::Connection, shipment: Shipment) -> Result<Shipment, String> {
+    // Deux chemins : si la ligne existe encore (soft-delete, cas courant
+    // depuis l'introduction de la corbeille), on la reactive juste ; si
+    // elle a ete purgee physiquement, on la reinsert a l'identique
+    // (comportement historique de l'undo).
+    let reactivated = conn
+        .execute(
+            "UPDATE shipments SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?1",
+            params![shipment.id],
+        )
+        .map_err(|e| e.to_string())?;
+    if reactivated > 0 {
+        let mut stmt = conn
+            .prepare("SELECT * FROM shipments WHERE id = ?1")
+            .map_err(|e| e.to_string())?;
+        return stmt.query_row(params![shipment.id], row_to_shipment).map_err(|e| e.to_string());
+    }
     conn.execute(
         "INSERT INTO shipments (id, supplier, tracking_number, carrier, recipient, material, status, expected_date, received_date, notes, pickup_option, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",

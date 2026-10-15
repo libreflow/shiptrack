@@ -65,7 +65,7 @@ fn archive_before_year_impl(
 
     let rows: Vec<Shipment> = {
         let mut stmt = conn
-            .prepare("SELECT * FROM shipments WHERE expected_date IS NOT NULL AND substr(expected_date,1,4) < ?1")
+            .prepare("SELECT * FROM shipments WHERE deleted_at IS NULL AND expected_date IS NOT NULL AND substr(expected_date,1,4) < ?1")
             .map_err(|e| e.to_string())?;
         let mapped = stmt
             .query_map(params![cutoff], row_to_shipment)
@@ -96,7 +96,7 @@ fn archive_before_year_impl(
     // Suppression uniquement après confirmation que l'archive a bien tout reçu.
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute(
-        "DELETE FROM shipments WHERE expected_date IS NOT NULL AND substr(expected_date,1,4) < ?1",
+        "DELETE FROM shipments WHERE deleted_at IS NULL AND expected_date IS NOT NULL AND substr(expected_date,1,4) < ?1",
         params![cutoff],
     )
     .map_err(|e| e.to_string())?;

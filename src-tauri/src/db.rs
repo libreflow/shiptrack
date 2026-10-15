@@ -81,6 +81,15 @@ pub fn migrations() -> Migrations<'static> {
              CREATE INDEX idx_shipments_status ON shipments(status);
              CREATE INDEX idx_shipments_expected_date ON shipments(expected_date);",
         ),
+        // Corbeille : soft-delete via deleted_at. NULL = expédition active
+        // (toutes les lignes existantes le restent), horodatage UTC = ligne
+        // supprimée, restaurable depuis la page Corbeille. Un index partiel
+        // couvre les requêtes actives (la grande majorité) sans coûter sur
+        // les écritures.
+        M::up(
+            "ALTER TABLE shipments ADD COLUMN deleted_at TEXT;
+             CREATE INDEX idx_shipments_deleted_at ON shipments(deleted_at) WHERE deleted_at IS NOT NULL;",
+        ),
     ])
 }
 

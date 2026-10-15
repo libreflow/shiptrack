@@ -28,6 +28,23 @@ const PICKUP_LABELS_FULL = {
 };
 const PICKUP_ORDER = ["with_pickup", "without_pickup"];
 
+// Techniciens dynamiques : extraits des notes existantes (« Traité par: X »)
+// plutôt qu'une liste codée en dur — un nouvel arrivant apparaît dès sa
+// première saisie via « Autre… », sans modifier le code. (Voir
+// rowToNewShipmentPayload dans pdf_batch.js et submitQuickRow pour le
+// format des notes.)
+function knownTechs() {
+  const names = new Set();
+  for (const s of allShipments) {
+    if (!s.notes) continue;
+    const match = s.notes.match(/^Trait\u00e9 par:\s*(.+)$/i);
+    if (match) {
+      const name = match[1].trim();
+      if (name) names.add(name);
+    }
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, "fr"));
+}
 const TECH_STORAGE_KEY = "shiptrack.lastTech";
 const FILTERS_STORAGE_KEY = "shiptrack.filters";
 const COLLAPSED_MONTHS_KEY = "shiptrack.collapsedMonths";
@@ -309,6 +326,7 @@ async function loadShipments() {
   }
   renderTable();
   refreshDatalists();
+  renderTechButtons(); // techniciens dynamiques (knownTechs) : la barre suit les données
 }
 
 function refreshDatalists() {
@@ -1075,7 +1093,7 @@ function renderTechButtons() {
   // réellement utilisé à la prochaine saisie, ce qui trompait l'utilisateur.
   const customOverride = Boolean(el("tech-custom").value.trim());
   const allBtn = `<button type="button" class="tech-btn tech-btn-all ${!technicianFilterActive ? "active filter-active" : ""}" data-tech-all title="Afficher toutes les expéditions, peu importe qui les a traitées">Tous</button>`;
-  const techButtons = KNOWN_TECHS.map((t) => {
+  const techButtons = knownTechs().map((t) => {
     const isSelected = t === selectedTech && !customOverride;
     const isFiltering = t === selectedTech && technicianFilterActive;
     // "active" = c'est CE bouton qui filtre actuellement la vue (fond plein).

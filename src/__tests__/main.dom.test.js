@@ -1677,7 +1677,10 @@ describe("main.js — feedback visuel sur champ en erreur (markFieldInvalid)", (
 
 describe("main.js — cohérence visuelle 'Autre…' vs bouton technicien présélectionné", () => {
   it("taper un nom libre dans 'Autre…' retire le style présélectionné du bouton technicien mémorisé", async () => {
-    await loadApp({ shipments: [], presetLocalStorage: { "shiptrack.lastTech": "julie" } });
+    await loadApp({
+      shipments: [makeShipment({ id: "id-1", notes: "Traité par: julie" })],
+      presetLocalStorage: { "shiptrack.lastTech": "julie" },
+    });
 
     const julieBtn = () => [...document.querySelectorAll("[data-tech]")].find((b) => b.dataset.tech === "julie");
     expect(julieBtn().classList.contains("preselected")).toBe(true);
